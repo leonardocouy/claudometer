@@ -32,7 +32,8 @@ async function initialize(): Promise<void> {
   settingsWindow = new SettingsWindowService();
 
   const settingsService = new SettingsService();
-  const sessionKeyService = new SessionKeyService();
+  const sessionKeyService = new SessionKeyService(settingsService);
+  await sessionKeyService.migrateLegacyPlaintextIfNeeded();
   const claudeApiService = new ClaudeApiService();
 
   tray = new TrayService({

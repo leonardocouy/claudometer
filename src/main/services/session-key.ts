@@ -1,92 +1,92 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { safeStorage } from 'electron';
 import { type ClaudeUsageSnapshot, nowIso } from '../../common/types.ts';
+import { SettingsService } from './settings.ts';
 
-const KEYTAR_SERVICE = 'claudometer';
-const KEYTAR_ACCOUNT = 'claude-sessionKey';
-const FALLBACK_DIR = path.join(os.homedir(), '.claudometer');
-const FALLBACK_KEY_PATH = path.join(FALLBACK_DIR, 'session-key');
+const LEGACY_FALLBACK_DIR = path.join(os.homedir(), '.claudometer');
+const LEGACY_FALLBACK_KEY_PATH = path.join(LEGACY_FALLBACK_DIR, 'session-key');
 
-type KeytarModule = {
-  getPassword: (service: string, account: string) => Promise<string | null>;
-  setPassword: (service: string, account: string, password: string) => Promise<void>;
-  deletePassword: (service: string, account: string) => Promise<boolean>;
-};
-
-async function readFallbackKeyFile(): Promise<string | null> {
+async function readLegacyPlaintextKeyFile(): Promise<string | null> {
   try {
-    const contents = await readFile(FALLBACK_KEY_PATH, 'utf8');
+    const contents = await readFile(LEGACY_FALLBACK_KEY_PATH, 'utf8');
     return contents?.trim() ? contents.trim() : null;
   } catch {
     return null;
   }
 }
 
-async function writeFallbackKeyFile(sessionKey: string): Promise<void> {
-  await mkdir(FALLBACK_DIR, { recursive: true, mode: 0o700 });
-  await writeFile(FALLBACK_KEY_PATH, `${sessionKey}\n`, { mode: 0o600 });
-}
-
-async function deleteFallbackKeyFile(): Promise<void> {
+async function deleteLegacyPlaintextKeyFile(): Promise<void> {
   try {
-    await rm(FALLBACK_KEY_PATH, { force: true });
+    await rm(LEGACY_FALLBACK_KEY_PATH, { force: true });
   } catch {
     // ignore
   }
 }
 
-async function tryLoadKeytar(): Promise<KeytarModule | null> {
-  // Linux: explicitly prefer file-based storage to avoid native toolchain/libsecret friction.
-  if (process.platform === 'linux') return null;
-  try {
-    const mod = (await import('keytar')) as unknown as KeytarModule;
-    if (typeof mod.getPassword !== 'function') return null;
-    return mod;
-  } catch {
-    return null;
-  }
-}
-
 export class SessionKeyService {
   private inMemoryKey: string | null = null;
+  private settingsService: SettingsService;
+
+  constructor(settingsService: SettingsService) {
+    this.settingsService = settingsService;
+  }
 
   setInMemory(key: string | null): void {
     this.inMemoryKey = key?.trim() ? key.trim() : null;
   }
 
-  async isKeytarAvailable(): Promise<boolean> {
-    return (await tryLoadKeytar()) !== null;
+  isEncryptionAvailable(): boolean {
+    return safeStorage.isEncryptionAvailable();
   }
 
   async getCurrentKey(): Promise<string | null> {
     if (this.inMemoryKey) return this.inMemoryKey;
-    const keytar = await tryLoadKeytar();
-    if (keytar) {
-      const stored = await keytar.getPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT);
-      if (stored?.trim()) return stored.trim();
+
+    if (!this.isEncryptionAvailable()) return null;
+
+    const b64 = this.settingsService.getSessionKeyEncryptedB64();
+    if (!b64) return null;
+
+    try {
+      const decrypted = safeStorage.decryptString(Buffer.from(b64, 'base64')).trim();
+      if (!decrypted) return null;
+      this.inMemoryKey = decrypted;
+      return decrypted;
+    } catch {
+      this.settingsService.clearSessionKeyEncryptedB64();
+      return null;
     }
-    return readFallbackKeyFile();
   }
 
   async rememberKey(key: string): Promise<void> {
     const trimmed = key.trim();
     if (!trimmed) return;
-    const keytar = await tryLoadKeytar();
-    if (!keytar) {
-      // Fallback: write to a local file with restrictive permissions.
-      await writeFallbackKeyFile(trimmed);
-      return;
-    }
-    await keytar.setPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT, trimmed);
+    this.inMemoryKey = trimmed;
+
+    if (!this.isEncryptionAvailable()) return;
+
+    const encrypted = safeStorage.encryptString(trimmed);
+    this.settingsService.setSessionKeyEncryptedB64(encrypted.toString('base64'));
   }
 
   async forgetKey(): Promise<boolean> {
     this.inMemoryKey = null;
-    const keytar = await tryLoadKeytar();
-    await deleteFallbackKeyFile();
-    if (!keytar) return true;
-    return keytar.deletePassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT);
+    this.settingsService.clearSessionKeyEncryptedB64();
+    await deleteLegacyPlaintextKeyFile();
+    return true;
+  }
+
+  async migrateLegacyPlaintextIfNeeded(): Promise<void> {
+    const legacy = await readLegacyPlaintextKeyFile();
+    if (!legacy) return;
+    if (!this.isEncryptionAvailable()) return;
+
+    const encrypted = safeStorage.encryptString(legacy);
+    this.settingsService.setSessionKeyEncryptedB64(encrypted.toString('base64'));
+    this.inMemoryKey = legacy;
+    await deleteLegacyPlaintextKeyFile();
   }
 
   buildMissingKeySnapshot(): ClaudeUsageSnapshot {

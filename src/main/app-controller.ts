@@ -69,7 +69,7 @@ export class AppController {
       organizations: this.organizations,
       selectedOrganizationId: this.settingsService.getSelectedOrganizationId(),
       latestSnapshot: this.latestSnapshot,
-      keytarAvailable: await this.sessionKeyService.isKeytarAvailable(),
+      encryptionAvailable: this.sessionKeyService.isEncryptionAvailable(),
     };
   }
 

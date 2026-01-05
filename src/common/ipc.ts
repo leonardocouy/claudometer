@@ -18,7 +18,7 @@ export type SettingsState = {
   organizations: ClaudeOrganization[];
   selectedOrganizationId?: string;
   latestSnapshot: ClaudeUsageSnapshot | null;
-  keytarAvailable: boolean;
+  encryptionAvailable: boolean;
 };
 
 export type SaveSettingsPayload = {
@@ -51,4 +51,3 @@ export type RendererApi = {
     onSnapshotUpdated: (handler: SnapshotUpdatedHandler) => Unsubscribe;
   };
 };
-

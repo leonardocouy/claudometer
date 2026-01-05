@@ -61,15 +61,15 @@ async function loadState(
   refreshIntervalEl: HTMLInputElement,
   orgSelectEl: HTMLSelectElement,
   statusBoxEl: HTMLElement,
-  keytarHintEl: HTMLElement,
+  storageHintEl: HTMLElement,
 ): Promise<SettingsState> {
   const state = await window.api.settings.getState();
   rememberKeyEl.value = String(Boolean(state.rememberSessionKey));
   refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
   renderOrgs(orgSelectEl, state.organizations || [], state.selectedOrganizationId);
-  keytarHintEl.textContent = state.keytarAvailable
+  storageHintEl.textContent = state.encryptionAvailable
     ? ''
-    : 'On Linux, "Remember" saves to ~/.claudometer/session-key (chmod 600).';
+    : 'Encrypted storage is unavailable on this system. "Remember" will be memory-only (no persistence across restarts).';
   setStatus(statusBoxEl, renderSnapshot(state.latestSnapshot));
   sessionKeyEl.value = '';
   return state;
@@ -87,12 +87,12 @@ function renderApp(root: HTMLElement): void {
 
     <div class="row inline">
       <div>
-        <label for="rememberKey">Remember session key (OS credential storage)</label>
+        <label for="rememberKey">Remember session key (encrypted storage)</label>
         <select id="rememberKey">
           <option value="false">No (memory only)</option>
           <option value="true">Yes</option>
         </select>
-        <div class="hint" id="keytarHint"></div>
+        <div class="hint" id="storageHint"></div>
       </div>
       <div>
         <label for="refreshInterval">Refresh interval (seconds)</label>
@@ -120,7 +120,7 @@ function renderApp(root: HTMLElement): void {
   const refreshIntervalEl = el<HTMLInputElement>(root, '#refreshInterval');
   const orgSelectEl = el<HTMLSelectElement>(root, '#orgSelect');
   const statusBoxEl = el<HTMLElement>(root, '#statusBox');
-  const keytarHintEl = el<HTMLElement>(root, '#keytarHint');
+  const storageHintEl = el<HTMLElement>(root, '#storageHint');
 
   const refreshNowButton = el<HTMLButtonElement>(root, '#refreshNow');
   const forgetKeyButton = el<HTMLButtonElement>(root, '#forgetKey');
@@ -135,7 +135,7 @@ function renderApp(root: HTMLElement): void {
       refreshIntervalEl,
       orgSelectEl,
       statusBoxEl,
-      keytarHintEl,
+      storageHintEl,
     );
   });
 
@@ -148,7 +148,7 @@ function renderApp(root: HTMLElement): void {
       refreshIntervalEl,
       orgSelectEl,
       statusBoxEl,
-      keytarHintEl,
+      storageHintEl,
     );
   });
 
@@ -168,7 +168,7 @@ function renderApp(root: HTMLElement): void {
         refreshIntervalEl,
         orgSelectEl,
         statusBoxEl,
-        keytarHintEl,
+        storageHintEl,
       );
     }
   });
@@ -179,7 +179,7 @@ function renderApp(root: HTMLElement): void {
     refreshIntervalEl,
     orgSelectEl,
     statusBoxEl,
-    keytarHintEl,
+    storageHintEl,
   );
 
   window.api.settings.onSnapshotUpdated((snapshot) => {
