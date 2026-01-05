@@ -26,7 +26,7 @@ const schema = {
   },
 };
 
-export class SettingsManager {
+export class SettingsService {
   private store: Store<AppSettings>;
 
   constructor() {

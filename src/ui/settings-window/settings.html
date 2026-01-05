@@ -1,102 +1,3 @@
-import { BrowserWindow, ipcMain } from 'electron';
-import type { ClaudeUsageSnapshot } from '../shared/claudeUsage.ts';
-import type { ClaudeOrganization } from './claudeWebUsageClient.ts';
-
-export type SettingsState = {
-  rememberSessionKey: boolean;
-  refreshIntervalSeconds: number;
-  organizations: ClaudeOrganization[];
-  selectedOrganizationId?: string;
-  latestSnapshot: ClaudeUsageSnapshot | null;
-  keytarAvailable: boolean;
-};
-
-export type SaveSettingsPayload = {
-  sessionKey: string;
-  rememberSessionKey: boolean;
-  refreshIntervalSeconds: number;
-  selectedOrganizationId?: string;
-};
-
-export class SettingsWindow {
-  private window: BrowserWindow | null = null;
-  private getState: () => Promise<SettingsState>;
-  private onSave: (
-    payload: SaveSettingsPayload,
-  ) => Promise<{ ok: true } | { ok: false; error: string }>;
-  private onForgetKey: () => Promise<void>;
-  private onRefreshNow: () => Promise<void>;
-
-  constructor(options: {
-    getState: () => Promise<SettingsState>;
-    onSave: (payload: SaveSettingsPayload) => Promise<{ ok: true } | { ok: false; error: string }>;
-    onForgetKey: () => Promise<void>;
-    onRefreshNow: () => Promise<void>;
-  }) {
-    this.getState = options.getState;
-    this.onSave = options.onSave;
-    this.onForgetKey = options.onForgetKey;
-    this.onRefreshNow = options.onRefreshNow;
-  }
-
-  show(): void {
-    if (this.window) {
-      this.window.show();
-      this.window.focus();
-      return;
-    }
-
-    this.window = new BrowserWindow({
-      width: 520,
-      height: 620,
-      resizable: false,
-      minimizable: false,
-      maximizable: false,
-      fullscreenable: false,
-      title: 'Claudometer Settings',
-      autoHideMenuBar: true,
-      backgroundColor: '#0f1115',
-      webPreferences: {
-        nodeIntegration: true,
-        contextIsolation: false,
-      },
-    });
-
-    this.window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(getSettingsHtml())}`);
-    this.window.setMenuBarVisibility(false);
-    this.window.on('closed', () => {
-      this.cleanupIpc();
-      this.window = null;
-    });
-
-    this.setupIpc();
-  }
-
-  private setupIpc(): void {
-    ipcMain.handle('settings:getState', async () => this.getState());
-    ipcMain.handle('settings:save', async (_event, payload: SaveSettingsPayload) =>
-      this.onSave(payload),
-    );
-    ipcMain.handle('settings:forgetKey', async () => {
-      await this.onForgetKey();
-      return { ok: true } as const;
-    });
-    ipcMain.handle('settings:refreshNow', async () => {
-      await this.onRefreshNow();
-      return { ok: true } as const;
-    });
-  }
-
-  private cleanupIpc(): void {
-    ipcMain.removeHandler('settings:getState');
-    ipcMain.removeHandler('settings:save');
-    ipcMain.removeHandler('settings:forgetKey');
-    ipcMain.removeHandler('settings:refreshNow');
-  }
-}
-
-function getSettingsHtml(): string {
-  return `
 <!doctype html>
 <html>
   <head>
@@ -128,7 +29,7 @@ function getSettingsHtml(): string {
     <div class="row">
       <label for="sessionKey">Claude session key (from claude.ai cookies)</label>
       <input id="sessionKey" type="password" placeholder="sk-ant-sid01-..." autocomplete="off" />
-      <div class="hint">Never paste this anywhere else. It is stored only if “Remember” is enabled.</div>
+      <div class="hint">Never paste this anywhere else. It is stored only if "Remember" is enabled.</div>
     </div>
 
     <div class="row inline">
@@ -183,7 +84,7 @@ function getSettingsHtml(): string {
         for (const org of orgs) {
           const opt = document.createElement('option');
           opt.value = org.id;
-          opt.textContent = org.name ? \`\${org.name} (\${org.id})\` : org.id;
+          opt.textContent = org.name ? `${org.name} (${org.id})` : org.id;
           orgSelectEl.appendChild(opt);
         }
         orgSelectEl.value = selectedId || '';
@@ -192,16 +93,16 @@ function getSettingsHtml(): string {
       function renderSnapshot(snapshot) {
         if (!snapshot) return '<strong>Status:</strong> no data';
         if (snapshot.status !== 'ok') {
-          const msg = snapshot.errorMessage ? \`<div class="error">\${snapshot.errorMessage}</div>\` : '';
-          return \`<strong>Status:</strong> \${snapshot.status}\${msg}<div>Last updated: \${snapshot.lastUpdatedAt}</div>\`;
+          const msg = snapshot.errorMessage ? `<div class="error">${snapshot.errorMessage}</div>` : '';
+          return `<strong>Status:</strong> ${snapshot.status}${msg}<div>Last updated: ${snapshot.lastUpdatedAt}</div>`;
         }
-        return \`
+        return `
           <strong>Status:</strong> ok<br/>
-          Session: \${Math.round(snapshot.sessionPercent)}%<br/>
-          Weekly: \${Math.round(snapshot.weeklyPercent)}%<br/>
-          \${snapshot.modelWeeklyName || 'Model'} (weekly): \${Math.round(snapshot.modelWeeklyPercent)}%\${snapshot.modelWeeklyResetsAt ? ' (resets ' + new Date(snapshot.modelWeeklyResetsAt).toLocaleString() + ')' : ''}<br/>
-          Last updated: \${snapshot.lastUpdatedAt}
-        \`;
+          Session: ${Math.round(snapshot.sessionPercent)}%<br/>
+          Weekly: ${Math.round(snapshot.weeklyPercent)}%<br/>
+          ${snapshot.modelWeeklyName || 'Model'} (weekly): ${Math.round(snapshot.modelWeeklyPercent)}%${snapshot.modelWeeklyResetsAt ? ` (resets ${new Date(snapshot.modelWeeklyResetsAt).toLocaleString()})` : ''}<br/>
+          Last updated: ${snapshot.lastUpdatedAt}
+        `;
       }
 
       async function loadState() {
@@ -235,7 +136,7 @@ function getSettingsHtml(): string {
         };
         const result = await ipcRenderer.invoke('settings:save', payload);
         if (!result.ok) {
-          setStatus('<strong>Status:</strong> <span class="error">error</span><div class="error">' + result.error + '</div>');
+          setStatus(`<strong>Status:</strong> <span class="error">error</span><div class="error">${result.error}</div>`);
           return;
         }
         sessionKeyEl.value = '';
@@ -245,6 +146,4 @@ function getSettingsHtml(): string {
       loadState();
     </script>
   </body>
-  </html>
-  `;
-}
+</html>

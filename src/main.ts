@@ -3,20 +3,24 @@
  */
 
 import { app, Menu } from 'electron';
-import type { ClaudeUsageSnapshot } from '../shared/claudeUsage.ts';
-import { nowIso } from '../shared/claudeUsage.ts';
-import { type ClaudeOrganization, ClaudeWebUsageClient } from './claudeWebUsageClient.ts';
-import { SessionKeyStore } from './sessionKeyStore.ts';
-import { SettingsManager } from './settings.ts';
-import { type SaveSettingsPayload, type SettingsState, SettingsWindow } from './settingsWindow.ts';
-import { TrayManager } from './tray.ts';
+import type { ClaudeUsageSnapshot } from './core/types.ts';
+import { nowIso } from './core/types.ts';
+import { ClaudeApiService, type ClaudeOrganization } from './services/claude-api.ts';
+import { SessionKeyService } from './services/session-key.ts';
+import { SettingsService } from './services/settings.ts';
+import {
+  type SaveSettingsPayload,
+  type SettingsState,
+  SettingsWindowService,
+} from './ui/settings-window/window.ts';
+import { TrayService } from './ui/tray.ts';
 
-const settingsManager = new SettingsManager();
-const sessionKeyStore = new SessionKeyStore();
-const usageClient = new ClaudeWebUsageClient();
+const settingsService = new SettingsService();
+const sessionKeyService = new SessionKeyService();
+const claudeApiService = new ClaudeApiService();
 
-let tray: TrayManager | null = null;
-let settingsWindow: SettingsWindow | null = null;
+let tray: TrayService | null = null;
+let settingsWindow: SettingsWindowService | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
 
 let organizations: ClaudeOrganization[] = [];
@@ -41,7 +45,7 @@ function stopPolling(): void {
 
 function startPolling(): void {
   stopPolling();
-  const intervalSeconds = settingsManager.getRefreshIntervalSeconds();
+  const intervalSeconds = settingsService.getRefreshIntervalSeconds();
   pollTimer = setInterval(() => {
     void refreshAll();
   }, Math.max(10, intervalSeconds) * 1000);
@@ -53,18 +57,18 @@ function updateTray(snapshot: ClaudeUsageSnapshot | null): void {
 }
 
 async function resolveOrganizationId(sessionKey: string): Promise<string | null> {
-  organizations = await usageClient.fetchOrganizations(sessionKey);
-  const stored = settingsManager.getSelectedOrganizationId();
+  organizations = await claudeApiService.fetchOrganizations(sessionKey);
+  const stored = settingsService.getSelectedOrganizationId();
   if (stored && organizations.some((o) => o.id === stored)) return stored;
   const first = organizations[0]?.id ?? null;
-  if (first) settingsManager.setSelectedOrganizationId(first);
+  if (first) settingsService.setSelectedOrganizationId(first);
   return first;
 }
 
 async function refreshAll(): Promise<void> {
-  const sessionKey = await sessionKeyStore.getCurrentKey();
+  const sessionKey = await sessionKeyService.getCurrentKey();
   if (!sessionKey) {
-    updateTray(sessionKeyStore.buildMissingKeySnapshot());
+    updateTray(sessionKeyService.buildMissingKeySnapshot());
     stopPolling();
     return;
   }
@@ -87,7 +91,7 @@ async function refreshAll(): Promise<void> {
     return;
   }
 
-  const snapshot = await usageClient.fetchUsageSnapshot(sessionKey, orgId);
+  const snapshot = await claudeApiService.fetchUsageSnapshot(sessionKey, orgId);
   updateTray(snapshot);
 
   if (snapshot.status === 'unauthorized') {
@@ -106,10 +110,10 @@ async function refreshAll(): Promise<void> {
 
 async function getSettingsState(): Promise<SettingsState> {
   return {
-    rememberSessionKey: settingsManager.getRememberSessionKey(),
-    refreshIntervalSeconds: settingsManager.getRefreshIntervalSeconds(),
+    rememberSessionKey: settingsService.getRememberSessionKey(),
+    refreshIntervalSeconds: settingsService.getRefreshIntervalSeconds(),
     organizations,
-    selectedOrganizationId: settingsManager.getSelectedOrganizationId(),
+    selectedOrganizationId: settingsService.getSelectedOrganizationId(),
     latestSnapshot,
     keytarAvailable: await isKeytarAvailable(),
   };
@@ -127,7 +131,7 @@ async function saveSettings(
   if (candidateSessionKey) {
     try {
       // Validate key before persisting or replacing any previously working key.
-      const fetchedOrgs = await usageClient.fetchOrganizations(candidateSessionKey);
+      const fetchedOrgs = await claudeApiService.fetchOrganizations(candidateSessionKey);
       organizations = fetchedOrgs;
       if (fetchedOrgs.length === 0) {
         return { ok: false, error: 'No organizations found for this account.' };
@@ -136,17 +140,17 @@ async function saveSettings(
       // Resolve org selection deterministically for the new key.
       const chosenOrgId = payload.selectedOrganizationId?.trim()
         ? payload.selectedOrganizationId?.trim()
-        : settingsManager.getSelectedOrganizationId();
+        : settingsService.getSelectedOrganizationId();
       const resolvedOrgId =
         chosenOrgId && fetchedOrgs.some((o) => o.id === chosenOrgId)
           ? chosenOrgId
           : fetchedOrgs[0]?.id;
-      settingsManager.setSelectedOrganizationId(resolvedOrgId);
+      settingsService.setSelectedOrganizationId(resolvedOrgId);
 
       // Only after validation do we replace the active key.
-      sessionKeyStore.setInMemory(candidateSessionKey);
+      sessionKeyService.setInMemory(candidateSessionKey);
       if (payload.rememberSessionKey) {
-        await sessionKeyStore.rememberKey(candidateSessionKey);
+        await sessionKeyService.rememberKey(candidateSessionKey);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to validate session key.';
@@ -154,12 +158,12 @@ async function saveSettings(
     }
   }
 
-  settingsManager.setRefreshIntervalSeconds(refreshIntervalSeconds);
+  settingsService.setRefreshIntervalSeconds(refreshIntervalSeconds);
   // If a new key was provided we already resolved org selection above; otherwise accept user selection.
   if (!candidateSessionKey) {
-    settingsManager.setSelectedOrganizationId(payload.selectedOrganizationId);
+    settingsService.setSelectedOrganizationId(payload.selectedOrganizationId);
   }
-  settingsManager.setRememberSessionKey(payload.rememberSessionKey);
+  settingsService.setRememberSessionKey(payload.rememberSessionKey);
 
   startPolling();
   await refreshAll();
@@ -167,13 +171,13 @@ async function saveSettings(
 }
 
 async function forgetKey(): Promise<void> {
-  await sessionKeyStore.forgetKey();
-  updateTray(sessionKeyStore.buildMissingKeySnapshot());
+  await sessionKeyService.forgetKey();
+  updateTray(sessionKeyService.buildMissingKeySnapshot());
   stopPolling();
 }
 
 function openSettings(): void {
-  settingsWindow ??= new SettingsWindow({
+  settingsWindow ??= new SettingsWindowService({
     getState: getSettingsState,
     onSave: saveSettings,
     onForgetKey: forgetKey,
@@ -191,7 +195,7 @@ async function initialize(): Promise<void> {
     app.dock?.hide();
   }
 
-  tray = new TrayManager({
+  tray = new TrayService({
     onOpenSettings: openSettings,
     onRefreshNow: () => void refreshAll(),
     onQuit: () => app.quit(),

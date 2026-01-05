@@ -1,5 +1,5 @@
-import { type ClaudeUsageSnapshot, nowIso } from '../shared/claudeUsage.ts';
-import { mapHttpStatusToUsageStatus, parseClaudeUsageFromJson } from '../shared/usageParser.ts';
+import { mapHttpStatusToUsageStatus, parseClaudeUsageFromJson } from '../core/parser.ts';
+import { type ClaudeUsageSnapshot, nowIso } from '../core/types.ts';
 
 export type ClaudeOrganization = { id: string; name?: string };
 
@@ -48,7 +48,7 @@ function buildHeaders(sessionKey: string): HeadersInit {
   };
 }
 
-export class ClaudeWebUsageClient {
+export class ClaudeApiService {
   async fetchOrganizations(sessionKey: string): Promise<ClaudeOrganization[]> {
     const response = await fetch('https://claude.ai/api/organizations', {
       method: 'GET',

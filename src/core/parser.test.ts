@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mapHttpStatusToUsageStatus, parseClaudeUsageFromJson } from './usageParser.ts';
+import { mapHttpStatusToUsageStatus, parseClaudeUsageFromJson } from './parser.ts';
 
 describe('parseClaudeUsageFromJson', () => {
   test('parses numeric utilization and resets_at', () => {

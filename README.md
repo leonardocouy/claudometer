@@ -2,6 +2,41 @@
 
 A tray-first desktop application for **macOS** and **Linux** that shows your Claude web usage limits in near real-time.
 
+## Installation
+
+### Download Pre-built Releases
+
+Download the latest release for your platform:
+
+**[Download from GitHub Releases](https://github.com/leonardocouy/claudometer/releases)**
+
+| Platform | File |
+|----------|------|
+| macOS (Apple Silicon) | `Claudometer-x.x.x-arm64.dmg` |
+| macOS (Intel) | `Claudometer-x.x.x-x64.dmg` |
+| Linux (Debian/Ubuntu) | `claudometer_x.x.x_amd64.deb` |
+| Linux (Universal) | `claudometer-x.x.x-x64.zip` |
+
+### Build from Source
+
+1. **Install Bun**
+   ```bash
+   curl -fsSL https://bun.sh/install | bash
+   ```
+
+2. **Clone and install dependencies**
+   ```bash
+   git clone https://github.com/leonardocouy/claudometer.git
+   cd claudometer
+   bun install
+   ```
+
+3. **Build distributables**
+   ```bash
+   bun run make
+   # Output in ./out/make/
+   ```
+
 ## What This Does
 
 Monitors your Claude.ai usage and displays it in your system tray:
@@ -11,34 +46,29 @@ Monitors your Claude.ai usage and displays it in your system tray:
 
 The app polls Claude's web API at configurable intervals and updates the tray icon color based on your usage status.
 
-## Quick Start
+## Quick Start (Development)
 
-### 1. Install Dependencies
+1. **Install dependencies**
+   ```bash
+   bun install
+   ```
 
-```bash
-bun install
-```
+2. **Get your Claude session key**
+   - Log in to [claude.ai](https://claude.ai)
+   - Open DevTools (F12 or Cmd+Option+I)
+   - Go to **Application** → **Cookies** → `https://claude.ai`
+   - Copy the `sessionKey` value
 
-### 2. Get Your Claude Session Key
+3. **Run in development mode**
+   ```bash
+   bun run start
+   ```
 
-1. Log in to [claude.ai](https://claude.ai) in your browser
-2. Open browser DevTools (F12 or Cmd+Option+I)
-3. Go to **Application** → **Cookies** → `https://claude.ai`
-4. Copy the value of the `sessionKey` cookie
-
-### 3. Run the App
-
-```bash
-bun run dev
-```
-
-### 4. Configure in Settings
-
-- Click the tray icon
-- Select **"Open Settings..."**
-- Paste your session key
-- Choose refresh interval (default: 60 seconds)
-- Save
+4. **Configure the app**
+   - Click the tray icon → **"Open Settings..."**
+   - Paste your session key
+   - Set refresh interval (default: 60s)
+   - Save
 
 The tray will now show your Claude usage stats.
 
@@ -130,8 +160,10 @@ claudometer/
 
 | Command | Description |
 |---------|-------------|
-| `bun run dev` | Run app in development mode with sandbox disabled |
-| `bun run start` | Run app normally |
+| `bun run start` | Run app in development mode with hot reload |
+| `bun run package` | Package app (no distributable) |
+| `bun run make` | Build distributables (.dmg, .deb, .zip) |
+| `bun run publish` | Build and publish to GitHub Releases |
 | `bun test` | Run unit tests |
 | `bun run typecheck` | TypeScript type checking |
 | `bun run check` | Run Biome linter and formatter checks |
@@ -143,6 +175,7 @@ claudometer/
 | Layer | Technology |
 |-------|-----------|
 | App Framework | Electron 39 |
+| Build Tool | Electron Forge + Vite |
 | Language | TypeScript 5.9 |
 | Runtime | Bun |
 | Settings Storage | `electron-store` (non-sensitive data) |

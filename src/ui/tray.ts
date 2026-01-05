@@ -3,20 +3,20 @@
  */
 
 import { Menu, nativeImage, Tray } from 'electron';
-import type { ClaudeUsageSnapshot } from '../shared/claudeUsage.ts';
+import type { ClaudeUsageSnapshot } from '../core/types.ts';
 
-export interface TrayManagerOptions {
+export interface TrayServiceOptions {
   onOpenSettings: () => void;
   onRefreshNow: () => void;
   onQuit: () => void;
 }
 
-export class TrayManager {
+export class TrayService {
   private tray: Tray | null = null;
   private latestSnapshot: ClaudeUsageSnapshot | null = null;
-  private options: TrayManagerOptions;
+  private options: TrayServiceOptions;
 
-  constructor(options: TrayManagerOptions) {
+  constructor(options: TrayServiceOptions) {
     this.options = options;
     this.createTray();
   }

@@ -1,4 +1,4 @@
-import type { ClaudeUsageSnapshot } from './claudeUsage.ts';
+import type { ClaudeUsageSnapshot } from './types.ts';
 
 type JsonValue = null | boolean | number | string | JsonObject | JsonValue[];
 type JsonObject = { [key: string]: JsonValue };
