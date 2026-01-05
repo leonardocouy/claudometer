@@ -33,7 +33,7 @@ Claudometer is an Electron-based tray application that monitors Claude web usage
 | **App Framework** | Electron | Cross-platform desktop with system tray support |
 | **Language** | TypeScript | Type safety for complex data parsing |
 | **Settings Storage** | electron-store | Simple JSON persistence for non-sensitive data |
-| **Secrets Storage** | keytar (macOS) | OS-level credential storage for session keys |
+| **Secrets Storage** | Electron safeStorage | OS-backed encryption for session key at rest |
 | **HTTP Client** | Native fetch | Modern, built-in, no dependencies |
 | **Linting** | Biome | Fast, batteries-included linter/formatter |
 
@@ -41,37 +41,37 @@ Claudometer is an Electron-based tray application that monitors Claude web usage
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ main/index.ts (Orchestrator)                                    │
+│ src/main.ts (Orchestrator)                                      │
 │ • App lifecycle management                                      │
-│ • Polling coordination                                          │
+│ • Polling coordination (AppController)                          │
 │ • Dependency wiring                                             │
 └────┬────────────────────────────────────────────────────────────┘
      │
-     ├─► TrayManager (main/tray.ts)
+     ├─► TrayService (src/main/tray.ts)
      │   • Renders system tray icon
      │   • Builds context menu from usage snapshot
      │   • Icon color reflects status (green/red/orange/gray)
      │
-     ├─► SettingsWindow (main/settingsWindow.ts)
-     │   • Inline HTML UI (no separate file)
-     │   • IPC communication with main process
-     │   • Session key input, org selection, refresh interval
+     ├─► SettingsWindowService (src/main/windows/settings-window.ts)
+     │   • Creates BrowserWindow
+     │   • Loads Vite renderer (settings UI)
+     │   • Pushes `snapshot:updated` events to renderer
      │
-     ├─► SettingsManager (main/settings.ts)
+     ├─► SettingsService (src/main/services/settings.ts)
      │   • Wraps electron-store for type-safe access
      │   • Stores: refreshIntervalSeconds, selectedOrganizationId, rememberSessionKey
      │
-     ├─► SessionKeyStore (main/sessionKeyStore.ts)
+     ├─► SessionKeyService (src/main/services/session-key.ts)
      │   • In-memory session key (always)
-     │   • Keytar storage (macOS only, if "Remember" enabled)
+     │   • Encrypted persistence via Electron `safeStorage` (ciphertext in electron-store)
      │   • Builds "missing_key" snapshot when no key available
      │
-     ├─► ClaudeWebUsageClient (main/claudeWebUsageClient.ts)
+     ├─► ClaudeApiService (src/main/services/claude-api.ts)
      │   • HTTP requests to claude.ai/api/*
      │   • fetchOrganizations() → ClaudeOrganization[]
      │   • fetchUsageSnapshot() → ClaudeUsageSnapshot
      │
-     └─► Usage Parsing (shared/usageParser.ts)
+     └─► Usage Parsing (src/common/parser.ts)
          • parseClaudeUsageFromJson() → typed snapshot
          • mapHttpStatusToUsageStatus() → error categorization
          • Smart model detection (seven_day_opus, seven_day_sonnet, etc.)
@@ -86,20 +86,20 @@ Claudometer is an Electron-based tray application that monitors Claude web usage
    ↓
 2. Load settings from electron-store
    ↓
-3. Load session key from keytar (macOS) or in-memory
+3. Load session key from encrypted storage (if available)
    ↓
-4. Create TrayManager
+4. Create TrayService
    ↓
-5. Call refreshAll()
+5. AppController.refreshNow() / start()
    ↓
-6. Start polling timer (interval from settings)
+6. Start polling loop (single-flight setTimeout, interval from settings)
 ```
 
 ### Polling Loop
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ refreshAll() - Every N seconds                              │
+│ AppController.refreshAll() - Every N seconds                 │
 └───┬─────────────────────────────────────────────────────────┘
     │
     ├─► Check if session key exists
@@ -122,7 +122,7 @@ Claudometer is an Electron-based tray application that monitors Claude web usage
     │
     └─► Handle special statuses
         ├─ unauthorized → Stop polling (key expired)
-        └─ rate_limited → Stop polling, retry in 5 minutes
+        └─ rate_limited → Back off (~5 minutes with jitter), then retry
 ```
 
 ### Settings Flow
@@ -132,7 +132,7 @@ User clicks "Open Settings..."
    ↓
 SettingsWindow.show()
    ↓
-Window loads inline HTML with IPC handlers
+Window loads Vite renderer UI (no Node APIs)
    ↓
 User enters session key, selects options
    ↓
@@ -162,20 +162,17 @@ Stored in `~/.config/claudometer/config.json` (Linux) or `~/Library/Application 
 ### Ephemeral State (In-Memory)
 
 ```typescript
-// main/index.ts
-let organizations: ClaudeOrganization[] = [];    // Fetched on demand
-let latestSnapshot: ClaudeUsageSnapshot | null = null;  // Updated every poll
-let pollTimer: NodeJS.Timeout | null = null;     // Active polling interval
+// src/main/app-controller.ts (conceptually)
+// - organizations: ClaudeOrganization[] (cached after validation / org fetch)
+// - latestSnapshot: ClaudeUsageSnapshot | null (drives tray + settings UI)
+// - timer: NodeJS.Timeout | null (single-flight setTimeout scheduler)
+// - currentRun: Promise<void> | null (prevents overlapping polls)
+// - pendingImmediate: boolean (coalesces refreshNow calls)
 ```
 
-### Secure State (OS Keychain)
+### Secure State (Encrypted Storage)
 
-**macOS**: Stored in system Keychain via `keytar`
-- Service: `claudometer`
-- Account: `session-key`
-- Value: The Claude sessionKey cookie
-
-**Linux**: In-memory only (not persisted to disk)
+When `safeStorage.isEncryptionAvailable()` is true, the session key is stored only as encrypted ciphertext (base64) in `electron-store`, and decrypted only in the main process.
 
 ## API Integration
 
@@ -306,8 +303,9 @@ Error snapshots include the error message:
 
 | Platform | Enabled | Storage Location | Persistence |
 |----------|---------|------------------|-------------|
-| macOS | Always | System Keychain (via keytar) | Across app restarts |
-| Linux | Optional | Memory only | Lost on app quit |
+| macOS | Usually | `safeStorage` + `electron-store` ciphertext | Across app restarts |
+| Linux | Depends on DE/keyring | `safeStorage` + `electron-store` ciphertext | Across app restarts (if encryption available) |
+| Any | If encryption unavailable | In-memory only | Until app exits |
 
 #### Security Measures
 
@@ -333,20 +331,18 @@ function redactBodyForLogs(body: string): string {
 
 ### IPC Security
 
-The settings window uses `nodeIntegration: true` and `contextIsolation: false` to simplify IPC, since:
-- The HTML is inline (no risk of loading untrusted remote content)
-- There's no user-generated content rendered in the window
-- The app doesn't navigate to external URLs
+The settings window uses `nodeIntegration: false` and `contextIsolation: true`, and exposes a minimal API via the preload script (`src/preload/preload.ts`) as `window.api`.
 
-**IPC handlers** (main/settingsWindow.ts):
+**IPC handlers** (`src/main/ipc/register.ts`):
 ```typescript
-ipcMain.handle('settings:getState', async () => this.getState());
-ipcMain.handle('settings:save', async (_event, payload) => this.onSave(payload));
-ipcMain.handle('settings:forgetKey', async () => this.onForgetKey());
-ipcMain.handle('settings:refreshNow', async () => this.onRefreshNow());
-```
+import { ipcMain } from 'electron';
+import { ipcChannels } from '../../common/ipc.ts';
 
-All handlers are cleaned up when the settings window closes.
+ipcMain.handle(ipcChannels.settings.getState, async () => controller.getState());
+ipcMain.handle(ipcChannels.settings.save, async (_event, payload) => controller.saveSettings(payload));
+ipcMain.handle(ipcChannels.settings.forgetKey, async () => controller.forgetKey());
+ipcMain.handle(ipcChannels.settings.refreshNow, async () => controller.refreshNow());
+```
 
 ## Error Handling
 
@@ -356,7 +352,7 @@ All handlers are cleaned up when the settings window closes.
 |----------|--------|-------------|----------|
 | Missing key | `missing_key` | Tray shows "needs session key" | User opens settings, adds key |
 | Unauthorized | `unauthorized` | Tray red, polling stops | User refreshes session key |
-| Rate limited | `rate_limited` | Tray orange, polling paused | Auto-retry in 5 minutes |
+| Rate limited | `rate_limited` | Tray orange, backs off polling | Auto-retry in ~5 minutes |
 | Network/API error | `error` | Error message in tray | Continues polling (transient) |
 
 ### Graceful Degradation
@@ -364,7 +360,7 @@ All handlers are cleaned up when the settings window closes.
 - **No session key**: App runs but shows "missing_key" status
 - **Invalid session key**: Validation fails in settings UI, existing state unchanged
 - **API errors**: Tray shows last-known good data until next successful fetch
-- **Keytar unavailable (Linux)**: Falls back to in-memory storage
+- **Encryption unavailable**: Session key cannot persist; UI warns and app runs memory-only
 
 ### Polling State Machine
 
@@ -383,14 +379,14 @@ All handlers are cleaned up when the settings window closes.
             │                      │
             ▼                      ▼
     ┌─────────────┐        ┌──────────────┐
-    │   STOPPED   │        │   PAUSED     │
-    │ (needs key) │        │ (retry 5min) │
+    │   STOPPED   │        │   BACKOFF    │
+    │ (needs key) │        │ (~5min)      │
     └─────────────┘        └──────┬───────┘
                                   │
-                          5 minutes elapsed
+                            backoff elapsed
                                   │
                                   ▼
-                          Resume polling
+                           Next poll attempt
 ```
 
 ## Extension Points
@@ -399,7 +395,7 @@ All handlers are cleaned up when the settings window closes.
 
 To track additional metrics from the Claude API response:
 
-1. **Update types** in `shared/claudeUsage.ts`:
+1. **Update types** in `src/common/types.ts`:
    ```typescript
    export type ClaudeUsageSnapshot = {
      status: 'ok';
@@ -409,7 +405,7 @@ To track additional metrics from the Claude API response:
    }
    ```
 
-2. **Update parser** in `shared/usageParser.ts`:
+2. **Update parser** in `src/common/parser.ts`:
    ```typescript
    export function parseClaudeUsageFromJson(...): ClaudeUsageSnapshot {
      const root = readObject(json) ?? {};
@@ -423,7 +419,7 @@ To track additional metrics from the Claude API response:
    }
    ```
 
-3. **Update tray display** in `main/tray.ts`:
+3. **Update tray display** in `src/main/tray.ts`:
    ```typescript
    items.push({
      label: `New Metric: ${this.formatPercent(snapshot.newMetricPercent)}`,
@@ -435,7 +431,7 @@ To track additional metrics from the Claude API response:
 
 To add a new persistent setting:
 
-1. **Update SettingsManager** in `main/settings.ts`:
+1. **Update SettingsService** in `src/main/services/settings.ts`:
    ```typescript
    getMyNewSetting(): string {
      return this.store.get('myNewSetting', 'default');
@@ -446,15 +442,8 @@ To add a new persistent setting:
    }
    ```
 
-2. **Add to settings UI** in `main/settingsWindow.ts` (inline HTML):
-   ```html
-   <div class="row">
-     <label for="myNewSetting">My New Setting</label>
-     <input id="myNewSetting" type="text" />
-   </div>
-   ```
-
-3. **Wire up in save handler**:
+2. **Add to settings UI** in `src/renderer/settings/main.ts` (renderer)
+3. **Wire up in save handler** (renderer → preload → ipcMain):
    ```javascript
    const payload = {
      // ... existing fields
@@ -465,12 +454,11 @@ To add a new persistent setting:
 ### Supporting Windows
 
 Current blockers for Windows support:
-1. **Keytar**: Optional dependency, may need alternative (e.g., node-credential-manager)
 2. **Tray icon rendering**: Uses raw RGBA buffer; test compatibility
 3. **Testing**: No Windows CI/testing currently
 
 To add Windows support:
-1. Test keytar or implement alternative credential storage
+1. Validate `safeStorage` behavior on Windows (encryption availability and persistence)
 2. Test tray icon rendering on Windows
 3. Update `package.json` platform targets
 4. Add Windows-specific build configuration
@@ -480,25 +468,22 @@ To add Windows support:
 To notify users when approaching usage limits:
 
 ```typescript
-// main/index.ts
+// src/main.ts
 import { Notification } from 'electron';
 
-function updateTray(snapshot: ClaudeUsageSnapshot | null): void {
-  latestSnapshot = snapshot;
+let notifiedAboutSession = false;
 
-  if (snapshot?.status === 'ok') {
-    // Check threshold (e.g., 90%)
-    if (snapshot.sessionPercent > 90 && !notifiedAboutSession) {
-      new Notification({
-        title: 'Claude Usage Warning',
-        body: `Session usage at ${Math.round(snapshot.sessionPercent)}%`,
-      }).show();
-      notifiedAboutSession = true;
-    }
-  }
+controller.onSnapshotUpdated((snapshot) => {
+  if (snapshot?.status !== 'ok') return;
+  if (snapshot.sessionPercent <= 90) return;
+  if (notifiedAboutSession) return;
 
-  tray?.updateSnapshot(snapshot);
-}
+  new Notification({
+    title: 'Claude Usage Warning',
+    body: `Session usage at ${Math.round(snapshot.sessionPercent)}%`,
+  }).show();
+  notifiedAboutSession = true;
+});
 ```
 
 Add a setting to control notification thresholds.
@@ -521,7 +506,7 @@ Add a setting to control notification thresholds.
 ### Example: Testing Parser
 
 ```typescript
-// src/shared/usageParser.test.ts
+// src/common/usageParser.test.ts
 import { describe, expect, test } from 'bun:test';
 import { parseUtilizationPercent } from './usageParser.ts';
 

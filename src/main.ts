@@ -3,186 +3,20 @@
  */
 
 import { app, Menu } from 'electron';
-import type { ClaudeUsageSnapshot } from './core/types.ts';
-import { nowIso } from './core/types.ts';
-import { ClaudeApiService, type ClaudeOrganization } from './services/claude-api.ts';
-import { SessionKeyService } from './services/session-key.ts';
-import { SettingsService } from './services/settings.ts';
-import {
-  type SaveSettingsPayload,
-  type SettingsState,
-  SettingsWindowService,
-} from './ui/settings-window/window.ts';
-import { TrayService } from './ui/tray.ts';
-
-const settingsService = new SettingsService();
-const sessionKeyService = new SessionKeyService();
-const claudeApiService = new ClaudeApiService();
+import { AppController } from './main/appController.ts';
+import { registerIpcHandlers } from './main/ipc/register.ts';
+import { ClaudeApiService } from './main/services/claudeApi.ts';
+import { SessionKeyService } from './main/services/sessionKey.ts';
+import { SettingsService } from './main/services/settings.ts';
+import { TrayService } from './main/tray.ts';
+import { SettingsWindowService } from './main/windows/settingsWindow.ts';
 
 let tray: TrayService | null = null;
+let controller: AppController | null = null;
 let settingsWindow: SettingsWindowService | null = null;
-let pollTimer: NodeJS.Timeout | null = null;
-
-let organizations: ClaudeOrganization[] = [];
-let latestSnapshot: ClaudeUsageSnapshot | null = null;
-
-async function isKeytarAvailable(): Promise<boolean> {
-  if (process.platform === 'linux') return false;
-  try {
-    await import('keytar');
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function stopPolling(): void {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-}
-
-function startPolling(): void {
-  stopPolling();
-  const intervalSeconds = settingsService.getRefreshIntervalSeconds();
-  pollTimer = setInterval(() => {
-    void refreshAll();
-  }, Math.max(10, intervalSeconds) * 1000);
-}
-
-function updateTray(snapshot: ClaudeUsageSnapshot | null): void {
-  latestSnapshot = snapshot;
-  tray?.updateSnapshot(snapshot);
-}
-
-async function resolveOrganizationId(sessionKey: string): Promise<string | null> {
-  organizations = await claudeApiService.fetchOrganizations(sessionKey);
-  const stored = settingsService.getSelectedOrganizationId();
-  if (stored && organizations.some((o) => o.id === stored)) return stored;
-  const first = organizations[0]?.id ?? null;
-  if (first) settingsService.setSelectedOrganizationId(first);
-  return first;
-}
-
-async function refreshAll(): Promise<void> {
-  const sessionKey = await sessionKeyService.getCurrentKey();
-  if (!sessionKey) {
-    updateTray(sessionKeyService.buildMissingKeySnapshot());
-    stopPolling();
-    return;
-  }
-
-  let orgId: string | null = null;
-  try {
-    orgId = await resolveOrganizationId(sessionKey);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to fetch organizations';
-    updateTray({ status: 'error', lastUpdatedAt: nowIso(), errorMessage: message });
-    return;
-  }
-
-  if (!orgId) {
-    updateTray({
-      status: 'error',
-      lastUpdatedAt: nowIso(),
-      errorMessage: 'No organizations found for this account.',
-    });
-    return;
-  }
-
-  const snapshot = await claudeApiService.fetchUsageSnapshot(sessionKey, orgId);
-  updateTray(snapshot);
-
-  if (snapshot.status === 'unauthorized') {
-    stopPolling();
-  } else if (snapshot.status === 'rate_limited') {
-    stopPolling();
-    setTimeout(
-      () => {
-        startPolling();
-        void refreshAll();
-      },
-      5 * 60 * 1000,
-    );
-  }
-}
-
-async function getSettingsState(): Promise<SettingsState> {
-  return {
-    rememberSessionKey: settingsService.getRememberSessionKey(),
-    refreshIntervalSeconds: settingsService.getRefreshIntervalSeconds(),
-    organizations,
-    selectedOrganizationId: settingsService.getSelectedOrganizationId(),
-    latestSnapshot,
-    keytarAvailable: await isKeytarAvailable(),
-  };
-}
-
-async function saveSettings(
-  payload: SaveSettingsPayload,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const refreshIntervalSeconds = Number(payload.refreshIntervalSeconds);
-  if (!Number.isFinite(refreshIntervalSeconds) || refreshIntervalSeconds < 10) {
-    return { ok: false, error: 'Refresh interval must be >= 10 seconds.' };
-  }
-
-  const candidateSessionKey = payload.sessionKey?.trim();
-  if (candidateSessionKey) {
-    try {
-      // Validate key before persisting or replacing any previously working key.
-      const fetchedOrgs = await claudeApiService.fetchOrganizations(candidateSessionKey);
-      organizations = fetchedOrgs;
-      if (fetchedOrgs.length === 0) {
-        return { ok: false, error: 'No organizations found for this account.' };
-      }
-
-      // Resolve org selection deterministically for the new key.
-      const chosenOrgId = payload.selectedOrganizationId?.trim()
-        ? payload.selectedOrganizationId?.trim()
-        : settingsService.getSelectedOrganizationId();
-      const resolvedOrgId =
-        chosenOrgId && fetchedOrgs.some((o) => o.id === chosenOrgId)
-          ? chosenOrgId
-          : fetchedOrgs[0]?.id;
-      settingsService.setSelectedOrganizationId(resolvedOrgId);
-
-      // Only after validation do we replace the active key.
-      sessionKeyService.setInMemory(candidateSessionKey);
-      if (payload.rememberSessionKey) {
-        await sessionKeyService.rememberKey(candidateSessionKey);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to validate session key.';
-      return { ok: false, error: message };
-    }
-  }
-
-  settingsService.setRefreshIntervalSeconds(refreshIntervalSeconds);
-  // If a new key was provided we already resolved org selection above; otherwise accept user selection.
-  if (!candidateSessionKey) {
-    settingsService.setSelectedOrganizationId(payload.selectedOrganizationId);
-  }
-  settingsService.setRememberSessionKey(payload.rememberSessionKey);
-
-  startPolling();
-  await refreshAll();
-  return { ok: true };
-}
-
-async function forgetKey(): Promise<void> {
-  await sessionKeyService.forgetKey();
-  updateTray(sessionKeyService.buildMissingKeySnapshot());
-  stopPolling();
-}
 
 function openSettings(): void {
-  settingsWindow ??= new SettingsWindowService({
-    getState: getSettingsState,
-    onSave: saveSettings,
-    onForgetKey: forgetKey,
-    onRefreshNow: refreshAll,
-  });
+  settingsWindow ??= new SettingsWindowService();
   settingsWindow.show();
 }
 
@@ -195,14 +29,31 @@ async function initialize(): Promise<void> {
     app.dock?.hide();
   }
 
+  settingsWindow = new SettingsWindowService();
+
+  const settingsService = new SettingsService();
+  const sessionKeyService = new SessionKeyService(settingsService);
+  const claudeApiService = new ClaudeApiService();
+
   tray = new TrayService({
     onOpenSettings: openSettings,
-    onRefreshNow: () => void refreshAll(),
+    onRefreshNow: () => void controller?.refreshNow(),
     onQuit: () => app.quit(),
   });
 
-  await refreshAll();
-  startPolling();
+  controller = new AppController({
+    settingsService,
+    sessionKeyService,
+    claudeApiService,
+    trayService: tray,
+  });
+
+  controller.onSnapshotUpdated((snapshot) => {
+    settingsWindow?.sendSnapshotUpdated(snapshot);
+  });
+
+  registerIpcHandlers(controller);
+  controller.start();
 }
 
 // Prevent multiple instances
@@ -217,7 +68,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
-  stopPolling();
+  controller?.stop();
   tray?.destroy();
   tray = null;
 });

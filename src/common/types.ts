@@ -20,6 +20,8 @@ export type ClaudeUsageSnapshot =
       errorMessage?: string;
     };
 
+export type ClaudeOrganization = { id: string; name?: string };
+
 export function nowIso(): string {
   return new Date().toISOString();
 }

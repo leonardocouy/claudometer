@@ -1,7 +1,5 @@
-import { mapHttpStatusToUsageStatus, parseClaudeUsageFromJson } from '../core/parser.ts';
-import { type ClaudeUsageSnapshot, nowIso } from '../core/types.ts';
-
-export type ClaudeOrganization = { id: string; name?: string };
+import { mapHttpStatusToUsageStatus, parseClaudeUsageFromJson } from '../../common/parser.ts';
+import { type ClaudeOrganization, type ClaudeUsageSnapshot, nowIso } from '../../common/types.ts';
 
 const DEBUG_CLAUDE_WEB = process.env.CLAUDE_USAGE_DEBUG === '1';
 
@@ -46,6 +44,16 @@ function buildHeaders(sessionKey: string): HeadersInit {
     Origin: 'https://claude.ai',
     Referer: 'https://claude.ai/',
   };
+}
+
+export function getClaudeWebRequestErrorStatus(
+  error: unknown,
+): 'unauthorized' | 'rate_limited' | 'error' | null {
+  if (!error || typeof error !== 'object') return null;
+  const record = error as Record<string, unknown>;
+  const status = record.status;
+  if (status === 'unauthorized' || status === 'rate_limited' || status === 'error') return status;
+  return null;
 }
 
 export class ClaudeApiService {

@@ -1,0 +1,151 @@
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    Segoe UI,
+    Roboto,
+    sans-serif;
+  margin: 16px;
+  background: #0f1115;
+  color: #e6e8ee;
+  overflow-x: hidden;
+}
+
+h1 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+
+.row {
+  margin: 12px 0;
+}
+
+label {
+  display: block;
+  font-size: 12px;
+  color: #a9b0c0;
+  margin-bottom: 6px;
+}
+
+input[type="password"],
+input[type="number"],
+select {
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #2a2f3a;
+  background: #151923;
+  color: #e6e8ee;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hint {
+  font-size: 12px;
+  color: #a9b0c0;
+}
+
+.inline {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.inline > * {
+  flex: 1;
+}
+
+.buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+button {
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #2a2f3a;
+  background: #1b2130;
+  color: #e6e8ee;
+  cursor: pointer;
+}
+
+button.primary {
+  background: #2b6cff;
+  border-color: #2b6cff;
+}
+
+button.danger {
+  background: #2a1414;
+  border-color: #7a2c2c;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.status {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #151923;
+  border: 1px solid #2a2f3a;
+  font-size: 12px;
+}
+
+.status strong {
+  color: #fff;
+}
+
+.error {
+  color: #ffb4b4;
+}
+
+.footer {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #2a2f3a;
+  text-align: center;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.footer-tagline {
+  margin-bottom: 8px;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.footer-links {
+  font-size: 12px;
+}
+
+.footer-version {
+  color: #9ca3af;
+}
+
+.footer-separator {
+  margin: 0 8px;
+  color: #4b5563;
+}
+
+.footer-link {
+  color: #6b7280;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.footer-link:hover {
+  color: #2b6cff;
+  text-decoration: underline;
+}

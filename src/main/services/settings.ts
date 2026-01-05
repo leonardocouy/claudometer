@@ -8,6 +8,11 @@ export interface AppSettings {
   refreshIntervalSeconds: number;
   selectedOrganizationId?: string;
   rememberSessionKey: boolean;
+  /**
+   * Encrypted ciphertext of Claude `sessionKey`, base64-encoded.
+   * Plaintext MUST never be persisted.
+   */
+  sessionKeyEncryptedB64?: string;
 }
 
 const schema = {
@@ -23,6 +28,10 @@ const schema = {
   rememberSessionKey: {
     type: 'boolean' as const,
     default: false,
+  },
+  sessionKeyEncryptedB64: {
+    type: 'string' as const,
+    default: '',
   },
 };
 
@@ -59,5 +68,18 @@ export class SettingsService {
 
   setRememberSessionKey(remember: boolean): void {
     this.store.set('rememberSessionKey', remember);
+  }
+
+  getSessionKeyEncryptedB64(): string | null {
+    const value = this.store.get('sessionKeyEncryptedB64', '');
+    return value.trim() ? value : null;
+  }
+
+  setSessionKeyEncryptedB64(value: string): void {
+    this.store.set('sessionKeyEncryptedB64', value);
+  }
+
+  clearSessionKeyEncryptedB64(): void {
+    this.store.set('sessionKeyEncryptedB64', '');
   }
 }

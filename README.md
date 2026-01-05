@@ -79,7 +79,7 @@ The tray will now show your Claude usage stats.
 | **System Tray** | Lives in your menu bar/system tray - always visible |
 | **Real-time Updates** | Configurable polling (minimum 10 seconds) |
 | **Multi-organization** | Supports accounts with multiple Claude orgs |
-| **Secure Storage** | Session key stored in OS keychain (macOS) or in-memory (Linux) |
+| **Secure Storage** | Session key stored encrypted via Electron `safeStorage` (ciphertext in `electron-store`) when available; otherwise memory-only |
 | **Status Indicators** | Tray icon changes color based on status (green=ok, red=unauthorized, orange=rate limited) |
 | **Auto-recovery** | Backs off automatically when rate-limited |
 
@@ -88,17 +88,16 @@ The tray will now show your Claude usage stats.
 ```
 claudometer/
 ├── src/
-│   ├── main/                      # Electron main process
-│   │   ├── index.ts              # App initialization & orchestration
-│   │   ├── tray.ts               # System tray icon and menu
-│   │   ├── settingsWindow.ts     # Settings UI window
-│   │   ├── sessionKeyStore.ts    # Secure session key storage
-│   │   ├── settings.ts           # App settings persistence
-│   │   └── claudeWebUsageClient.ts # HTTP client for Claude API
-│   └── shared/                    # Shared types & utilities
-│       ├── claudeUsage.ts        # Type definitions
-│       ├── usageParser.ts        # JSON response parser
-│       └── usageParser.test.ts   # Unit tests
+│   ├── main.ts                    # Electron main process entry (tray-first)
+│   ├── main/                      # Main process modules
+│   │   ├── tray.ts                # System tray icon and menu
+│   │   ├── app-controller.ts      # Polling + state (single-flight setTimeout loop)
+│   │   ├── ipc/                   # ipcMain handlers (settings actions)
+│   │   ├── services/              # Claude API + settings + session key
+│   │   └── windows/               # Settings window + push events
+│   ├── preload/                   # contextBridge: exposes window.api
+│   ├── renderer/                  # Vite renderer(s) for windows (settings)
+│   └── common/                    # Shared types + parser + IPC contract
 ├── assets/                        # Tray icons
 ├── openspec/                      # Change proposals & specs
 ├── package.json
@@ -118,7 +117,7 @@ claudometer/
              │
              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ Main Process (src/main/index.ts)                           │
+│ Main Process (src/main.ts)                                 │
 │ • Initializes tray icon                                     │
 │ • Starts polling timer (configurable interval)              │
 │ • Coordinates data flow                                     │
@@ -144,10 +143,10 @@ claudometer/
 
 ### Data Flow
 
-1. **App starts** → Loads saved session key from OS keychain (macOS) or memory (Linux)
+1. **App starts** → Loads saved session key from encrypted storage (if available)
 2. **Every N seconds** → Polls Claude API for usage data
 3. **On response** → Parses JSON, updates tray icon color and menu text
-4. **On error** → Updates tray to show error state, stops polling if unauthorized
+4. **On error** → Updates tray to show error state, stops polling if unauthorized (401/403)
 
 ## Development
 
@@ -179,7 +178,7 @@ claudometer/
 | Language | TypeScript 5.9 |
 | Runtime | Bun |
 | Settings Storage | `electron-store` (non-sensitive data) |
-| Secret Storage | `keytar` (macOS only - session key) |
+| Secret Storage | Electron `safeStorage` + `electron-store` (encrypted ciphertext) |
 | Linting/Formatting | Biome |
 | Testing | Bun's built-in test runner |
 
@@ -187,8 +186,8 @@ claudometer/
 
 ### Session Key Handling
 
-- **macOS**: Stored in system Keychain via `keytar` library
-- **Linux**: Stored in-memory only (not persisted to disk)
+- **Encrypted at rest** (when available): Stored via Electron `safeStorage` and persisted only as ciphertext in `electron-store`
+- **If encryption unavailable**: Used in-memory for the current run only (no persistence)
 - **Never logged**: Session key is never included in logs, error messages, or telemetry
 - **Validation before storage**: Session key is validated against Claude API before being saved
 
@@ -224,9 +223,9 @@ Claude API is rate-limiting your requests:
 
 ### App won't start on Linux
 
-Keytar dependency is optional on Linux. If you see errors related to `keytar`:
-1. Session key will be stored in-memory only (not persisted)
-2. You'll need to re-enter it each time you restart the app
+If the settings UI warns that encrypted storage is unavailable:
+1. The app will still work, but your session key will not persist across restarts
+2. You may need to re-enter the key after restarting
 
 ### No organizations found
 
@@ -245,7 +244,6 @@ Check the tray menu:
 ## Roadmap
 
 - [ ] Windows support
-- [ ] Persistent session key storage on Linux (via libsecret)
 - [ ] Desktop notifications when approaching usage limits
 - [ ] Historical usage graphs
 - [ ] Menu bar percentage display
