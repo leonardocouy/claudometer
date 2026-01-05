@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/leonardocouy/claudometer/compare/v1.1.0...v1.2.0) (2026-01-05)
+
+
+### Features
+
+* use node-notifier for audible alerts ([#6](https://github.com/leonardocouy/claudometer/issues/6)) ([d9eb4d0](https://github.com/leonardocouy/claudometer/commit/d9eb4d0fac818bc3a1e8d653fa2e825edb4e0d2b))
+
 ## [1.1.0](https://github.com/leonardocouy/claudometer/compare/v1.0.1...v1.1.0) (2026-01-05)
 
 
