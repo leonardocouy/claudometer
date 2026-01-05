@@ -67,7 +67,9 @@ export class SettingsWindowService {
       },
     });
 
-    const htmlPath = path.join(__dirname, 'settings.html');
+    // After bundling, __dirname points to .vite/build/ where main.js lives
+    // The HTML is copied to .vite/build/ui/settings-window/ by vite-plugin-static-copy
+    const htmlPath = path.join(__dirname, 'ui', 'settings-window', 'settings.html');
     this.window.loadFile(htmlPath);
     this.window.setMenuBarVisibility(false);
     this.window.on('closed', () => {
