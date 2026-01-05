@@ -1,5 +1,5 @@
-import { Notification, shell } from 'electron';
 import { createRequire } from 'node:module';
+import { Notification, shell } from 'electron';
 import { decideNearLimitAlerts } from '../../common/nearLimitAlerts.ts';
 import type { ClaudeUsageSnapshot } from '../../common/types.ts';
 import type { SettingsService } from './settings.ts';
