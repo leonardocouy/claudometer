@@ -3,13 +3,13 @@
  */
 
 import { app, Menu } from 'electron';
-import { AppController } from './main/app-controller.ts';
+import { AppController } from './main/appController.ts';
 import { registerIpcHandlers } from './main/ipc/register.ts';
-import { ClaudeApiService } from './main/services/claude-api.ts';
-import { SessionKeyService } from './main/services/session-key.ts';
+import { ClaudeApiService } from './main/services/claudeApi.ts';
+import { SessionKeyService } from './main/services/sessionKey.ts';
 import { SettingsService } from './main/services/settings.ts';
 import { TrayService } from './main/tray.ts';
-import { SettingsWindowService } from './main/windows/settings-window.ts';
+import { SettingsWindowService } from './main/windows/settingsWindow.ts';
 
 let tray: TrayService | null = null;
 let controller: AppController | null = null;

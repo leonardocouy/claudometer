@@ -1,8 +1,8 @@
-import { type IpcResult, type SaveSettingsPayload, type SettingsState } from '../common/ipc.ts';
-import { nowIso, type ClaudeOrganization, type ClaudeUsageSnapshot } from '../common/types.ts';
-import { ClaudeApiService, getClaudeWebRequestErrorStatus } from './services/claude-api.ts';
-import { SessionKeyService } from './services/session-key.ts';
-import { SettingsService } from './services/settings.ts';
+import type { IpcResult, SaveSettingsPayload, SettingsState } from '../common/ipc.ts';
+import { type ClaudeOrganization, type ClaudeUsageSnapshot, nowIso } from '../common/types.ts';
+import { type ClaudeApiService, getClaudeWebRequestErrorStatus } from './services/claudeApi.ts';
+import type { SessionKeyService } from './services/sessionKey.ts';
+import type { SettingsService } from './services/settings.ts';
 import type { TrayService } from './tray.ts';
 
 function sanitizeMessage(message: string): string {
@@ -118,7 +118,9 @@ export class AppController {
           return { ok: false, error: { code: 'RATE_LIMITED', message: 'Rate limited.' } };
         }
         const message =
-          error instanceof Error ? sanitizeMessage(error.message) : 'Failed to validate session key.';
+          error instanceof Error
+            ? sanitizeMessage(error.message)
+            : 'Failed to validate session key.';
         return { ok: false, error: { code: 'NETWORK', message } };
       }
     }

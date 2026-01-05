@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 import { ipcChannels } from '../../common/ipc.ts';
-import type { AppController } from '../app-controller.ts';
+import type { AppController } from '../appController.ts';
 
 export function registerIpcHandlers(controller: AppController): void {
   ipcMain.handle(ipcChannels.settings.getState, async () => controller.getState());
