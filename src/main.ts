@@ -6,6 +6,7 @@ import { app, Menu } from 'electron';
 import { AppController } from './main/appController.ts';
 import { registerIpcHandlers } from './main/ipc/register.ts';
 import { ClaudeApiService } from './main/services/claudeApi.ts';
+import { NotificationSoundService } from './main/services/notificationSound.ts';
 import { SessionKeyService } from './main/services/sessionKey.ts';
 import { SettingsService } from './main/services/settings.ts';
 import { UsageNotificationService } from './main/services/usageNotification.ts';
@@ -35,7 +36,14 @@ async function initialize(): Promise<void> {
   const settingsService = new SettingsService();
   const sessionKeyService = new SessionKeyService(settingsService);
   const claudeApiService = new ClaudeApiService();
-  const usageNotificationService = new UsageNotificationService(settingsService);
+  const notificationSoundService = new NotificationSoundService({
+    platform: process.platform,
+    userDataDir: app.getPath('userData'),
+  });
+  const usageNotificationService = new UsageNotificationService(
+    settingsService,
+    notificationSoundService,
+  );
 
   tray = new TrayService({
     onOpenSettings: openSettings,
