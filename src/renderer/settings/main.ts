@@ -1,6 +1,6 @@
 import './styles.css';
-import type { ClaudeUsageSnapshot, ClaudeOrganization } from '../../common/types.ts';
 import type { IpcResult, SettingsState } from '../../common/ipc.ts';
+import type { ClaudeOrganization, ClaudeUsageSnapshot } from '../../common/types.ts';
 
 const el = <T extends HTMLElement>(root: ParentNode, selector: string): T => {
   const node = root.querySelector(selector);
@@ -8,7 +8,11 @@ const el = <T extends HTMLElement>(root: ParentNode, selector: string): T => {
   return node as T;
 };
 
-function renderOrgs(orgSelectEl: HTMLSelectElement, orgs: ClaudeOrganization[], selectedId?: string) {
+function renderOrgs(
+  orgSelectEl: HTMLSelectElement,
+  orgs: ClaudeOrganization[],
+  selectedId?: string,
+) {
   orgSelectEl.innerHTML = '';
   const emptyOpt = document.createElement('option');
   emptyOpt.value = '';

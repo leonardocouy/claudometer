@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { ipcChannels } from '../common/ipc.ts';
 import type {
   IpcResult,
   RendererApi,
@@ -7,6 +6,7 @@ import type {
   SettingsState,
   SnapshotUpdatedHandler,
 } from '../common/ipc.ts';
+import { ipcChannels } from '../common/ipc.ts';
 import type { ClaudeUsageSnapshot } from '../common/types.ts';
 
 const api: RendererApi = {
@@ -20,7 +20,10 @@ const api: RendererApi = {
     refreshNow: async () =>
       (await ipcRenderer.invoke(ipcChannels.settings.refreshNow)) as IpcResult<null>,
     onSnapshotUpdated: (handler: SnapshotUpdatedHandler) => {
-      const listener = (_event: Electron.IpcRendererEvent, snapshot: ClaudeUsageSnapshot | null) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        snapshot: ClaudeUsageSnapshot | null,
+      ) => {
         handler(snapshot);
       };
       ipcRenderer.on(ipcChannels.events.snapshotUpdated, listener);

@@ -1,6 +1,6 @@
 import { safeStorage } from 'electron';
 import { type ClaudeUsageSnapshot, nowIso } from '../../common/types.ts';
-import { SettingsService } from './settings.ts';
+import type { SettingsService } from './settings.ts';
 
 export class SessionKeyService {
   private inMemoryKey: string | null = null;

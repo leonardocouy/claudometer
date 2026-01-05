@@ -28,12 +28,7 @@ export type SaveSettingsPayload = {
   selectedOrganizationId?: string;
 };
 
-export type IpcErrorCode =
-  | 'VALIDATION'
-  | 'NETWORK'
-  | 'UNAUTHORIZED'
-  | 'RATE_LIMITED'
-  | 'UNKNOWN';
+export type IpcErrorCode = 'VALIDATION' | 'NETWORK' | 'UNAUTHORIZED' | 'RATE_LIMITED' | 'UNKNOWN';
 
 export type IpcError = { code: IpcErrorCode; message: string };
 

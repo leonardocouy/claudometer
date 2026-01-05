@@ -114,4 +114,3 @@ function readModelWeeklyUsage(root: JsonObject): {
 
   return { percent: 0 };
 }
-
