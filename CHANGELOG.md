@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1](https://github.com/leonardocouy/claudometer/compare/v1.2.0...v1.2.1) (2026-01-05)
+
+
+### Bug Fixes
+
+* **linux:** play audible sound for near-limit alerts ([066838a](https://github.com/leonardocouy/claudometer/commit/066838a77ccbafde05e64cf7aab7b4550be21876))
+* **linux:** try terminal bell for alert sound ([08b7b5e](https://github.com/leonardocouy/claudometer/commit/08b7b5e7ec5801b82ead5846950dc640d2be1f39))
+
 ## [1.2.0](https://github.com/leonardocouy/claudometer/compare/v1.1.0...v1.2.0) (2026-01-05)
 
 
