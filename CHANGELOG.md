@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/leonardocouy/claudometer/compare/v1.0.1...v1.1.0) (2026-01-05)
+
+
+### Features
+
+* notify when usage reaches 90% ([#4](https://github.com/leonardocouy/claudometer/issues/4)) ([011090c](https://github.com/leonardocouy/claudometer/commit/011090ca9e1838d267defb3b754cbf2c2ff07a03))
+
 ## [1.0.1](https://github.com/leonardocouy/claudometer/compare/v1.0.0...v1.0.1) (2026-01-05)
 
 
