@@ -59,11 +59,21 @@ const config: ForgeConfig = {
     new VitePlugin({
       build: [
         {
-          entry: 'src/main.ts',
+          entry: 'src/main/main.ts',
           config: 'vite.main.config.ts',
         },
+        {
+          entry: 'src/preload/preload.ts',
+          config: 'vite.preload.config.ts',
+          target: 'preload',
+        },
       ],
-      renderer: [],
+      renderer: [
+        {
+          name: 'settings',
+          config: 'vite.settings.config.ts',
+        },
+      ],
     }),
   ],
 };

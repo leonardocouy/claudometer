@@ -61,3 +61,4 @@ export class SettingsService {
     this.store.set('rememberSessionKey', remember);
   }
 }
+

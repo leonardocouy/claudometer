@@ -3,7 +3,7 @@
  */
 
 import { Menu, nativeImage, Tray } from 'electron';
-import type { ClaudeUsageSnapshot } from '../core/types.ts';
+import type { ClaudeUsageSnapshot } from '../shared/types.ts';
 
 export interface TrayServiceOptions {
   onOpenSettings: () => void;
@@ -173,3 +173,4 @@ export class TrayService {
     this.tray = null;
   }
 }
+

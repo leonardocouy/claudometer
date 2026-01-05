@@ -83,3 +83,4 @@ describe('mapHttpStatusToUsageStatus', () => {
     expect(mapHttpStatusToUsageStatus(418)).toBe('error');
   });
 });
+

@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { type ClaudeUsageSnapshot, nowIso } from '../core/types.ts';
+import { type ClaudeUsageSnapshot, nowIso } from '../../shared/types.ts';
 
 const KEYTAR_SERVICE = 'claudometer';
 const KEYTAR_ACCOUNT = 'claude-sessionKey';
@@ -55,6 +55,10 @@ export class SessionKeyService {
     this.inMemoryKey = key?.trim() ? key.trim() : null;
   }
 
+  async isKeytarAvailable(): Promise<boolean> {
+    return (await tryLoadKeytar()) !== null;
+  }
+
   async getCurrentKey(): Promise<string | null> {
     if (this.inMemoryKey) return this.inMemoryKey;
     const keytar = await tryLoadKeytar();
@@ -93,3 +97,4 @@ export class SessionKeyService {
     };
   }
 }
+
