@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/leonardocouy/claudometer/compare/v1.2.1...v1.3.0) (2026-01-05)
+
+
+### Features
+
+* add usage reset notifications ([#9](https://github.com/leonardocouy/claudometer/issues/9)) ([c831c6a](https://github.com/leonardocouy/claudometer/commit/c831c6a3a0378e4fd3473ab389d5fd96324f940f))
+
 ## [1.2.1](https://github.com/leonardocouy/claudometer/compare/v1.2.0...v1.2.1) (2026-01-05)
 
 
