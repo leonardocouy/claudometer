@@ -1,4 +1,4 @@
-import type { RendererApi } from '../shared/ipc.ts';
+import type { RendererApi } from '../common/ipc.ts';
 
 declare global {
   interface Window {
@@ -7,4 +7,3 @@ declare global {
 }
 
 export {};
-

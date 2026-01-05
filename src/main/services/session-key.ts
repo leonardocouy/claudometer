@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { type ClaudeUsageSnapshot, nowIso } from '../../shared/types.ts';
+import { type ClaudeUsageSnapshot, nowIso } from '../../common/types.ts';
 
 const KEYTAR_SERVICE = 'claudometer';
 const KEYTAR_ACCOUNT = 'claude-sessionKey';
@@ -97,4 +97,3 @@ export class SessionKeyService {
     };
   }
 }
-

@@ -3,13 +3,13 @@
  */
 
 import { app, Menu } from 'electron';
-import { AppController } from './app-controller.ts';
-import { registerIpcHandlers } from './ipc/register.ts';
-import { ClaudeApiService } from './services/claude-api.ts';
-import { SessionKeyService } from './services/session-key.ts';
-import { SettingsService } from './services/settings.ts';
-import { TrayService } from './tray.ts';
-import { SettingsWindowService } from './windows/settings-window.ts';
+import { AppController } from './main/app-controller.ts';
+import { registerIpcHandlers } from './main/ipc/register.ts';
+import { ClaudeApiService } from './main/services/claude-api.ts';
+import { SessionKeyService } from './main/services/session-key.ts';
+import { SettingsService } from './main/services/settings.ts';
+import { TrayService } from './main/tray.ts';
+import { SettingsWindowService } from './main/windows/settings-window.ts';
 
 let tray: TrayService | null = null;
 let controller: AppController | null = null;
@@ -72,4 +72,3 @@ app.on('will-quit', () => {
   tray?.destroy();
   tray = null;
 });
-

@@ -521,7 +521,7 @@ Add a setting to control notification thresholds.
 ### Example: Testing Parser
 
 ```typescript
-// src/shared/usageParser.test.ts
+// src/common/usageParser.test.ts
 import { describe, expect, test } from 'bun:test';
 import { parseUtilizationPercent } from './usageParser.ts';
 

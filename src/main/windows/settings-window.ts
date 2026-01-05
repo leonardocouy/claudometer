@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { BrowserWindow } from 'electron';
-import { ipcChannels } from '../../shared/ipc.ts';
-import type { ClaudeUsageSnapshot } from '../../shared/types.ts';
+import { ipcChannels } from '../../common/ipc.ts';
+import type { ClaudeUsageSnapshot } from '../../common/types.ts';
 
 declare const SETTINGS_VITE_DEV_SERVER_URL: string | undefined;
 declare const SETTINGS_VITE_NAME: string;
@@ -50,4 +50,3 @@ export class SettingsWindowService {
     this.window?.webContents.send(ipcChannels.events.snapshotUpdated, snapshot);
   }
 }
-

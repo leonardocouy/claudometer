@@ -1,5 +1,5 @@
-import { mapHttpStatusToUsageStatus, parseClaudeUsageFromJson } from '../../shared/parser.ts';
-import { type ClaudeOrganization, type ClaudeUsageSnapshot, nowIso } from '../../shared/types.ts';
+import { mapHttpStatusToUsageStatus, parseClaudeUsageFromJson } from '../../common/parser.ts';
+import { type ClaudeOrganization, type ClaudeUsageSnapshot, nowIso } from '../../common/types.ts';
 
 const DEBUG_CLAUDE_WEB = process.env.CLAUDE_USAGE_DEBUG === '1';
 
@@ -172,4 +172,3 @@ export class ClaudeApiService {
     }
   }
 }
-

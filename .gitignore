@@ -7,6 +7,9 @@ research/
 # Beads issue tracking (local)
 .beads/
 
+# Git worktrees (local)
+.worktrees/
+
 # Python
 __pycache__/
 *.py[cod]

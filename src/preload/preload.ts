@@ -1,13 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { ipcChannels } from '../shared/ipc.ts';
+import { ipcChannels } from '../common/ipc.ts';
 import type {
   IpcResult,
   RendererApi,
   SaveSettingsPayload,
   SettingsState,
   SnapshotUpdatedHandler,
-} from '../shared/ipc.ts';
-import type { ClaudeUsageSnapshot } from '../shared/types.ts';
+} from '../common/ipc.ts';
+import type { ClaudeUsageSnapshot } from '../common/types.ts';
 
 const api: RendererApi = {
   settings: {
@@ -32,4 +32,3 @@ const api: RendererApi = {
 };
 
 contextBridge.exposeInMainWorld('api', api);
-

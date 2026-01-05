@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron';
-import { ipcChannels } from '../../shared/ipc.ts';
+import { ipcChannels } from '../../common/ipc.ts';
 import type { AppController } from '../app-controller.ts';
 
 export function registerIpcHandlers(controller: AppController): void {
@@ -10,4 +10,3 @@ export function registerIpcHandlers(controller: AppController): void {
   ipcMain.handle(ipcChannels.settings.forgetKey, async () => controller.forgetKey());
   ipcMain.handle(ipcChannels.settings.refreshNow, async () => controller.refreshNow());
 }
-

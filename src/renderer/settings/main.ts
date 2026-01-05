@@ -1,6 +1,6 @@
 import './styles.css';
-import type { ClaudeUsageSnapshot, ClaudeOrganization } from '../../shared/types.ts';
-import type { IpcResult, SettingsState } from '../../shared/ipc.ts';
+import type { ClaudeUsageSnapshot, ClaudeOrganization } from '../../common/types.ts';
+import type { IpcResult, SettingsState } from '../../common/ipc.ts';
 
 const el = <T extends HTMLElement>(root: ParentNode, selector: string): T => {
   const node = root.querySelector(selector);
@@ -188,4 +188,3 @@ function renderApp(root: HTMLElement): void {
 }
 
 renderApp(el<HTMLElement>(document, '#app'));
-

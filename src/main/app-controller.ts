@@ -1,5 +1,5 @@
-import { type IpcResult, type SaveSettingsPayload, type SettingsState } from '../shared/ipc.ts';
-import { nowIso, type ClaudeOrganization, type ClaudeUsageSnapshot } from '../shared/types.ts';
+import { type IpcResult, type SaveSettingsPayload, type SettingsState } from '../common/ipc.ts';
+import { nowIso, type ClaudeOrganization, type ClaudeUsageSnapshot } from '../common/types.ts';
 import { ClaudeApiService, getClaudeWebRequestErrorStatus } from './services/claude-api.ts';
 import { SessionKeyService } from './services/session-key.ts';
 import { SettingsService } from './services/settings.ts';
@@ -247,4 +247,3 @@ export class AppController {
     }
   }
 }
-
