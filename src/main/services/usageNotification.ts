@@ -1,22 +1,16 @@
 import { Notification } from 'electron';
 import { decideNearLimitAlerts } from '../../common/nearLimitAlerts.ts';
 import type { ClaudeUsageSnapshot } from '../../common/types.ts';
-import type { NotificationSoundService } from './notificationSound.ts';
 import type { SettingsService } from './settings.ts';
 
 type LastSeenPercents = { sessionPercent: number; weeklyPercent: number };
 
 export class UsageNotificationService {
   private settingsService: SettingsService;
-  private notificationSoundService: NotificationSoundService;
   private lastSeenByOrg = new Map<string, LastSeenPercents>();
 
-  constructor(
-    settingsService: SettingsService,
-    notificationSoundService: NotificationSoundService,
-  ) {
+  constructor(settingsService: SettingsService) {
     this.settingsService = settingsService;
-    this.notificationSoundService = notificationSoundService;
   }
 
   maybeNotify(snapshot: ClaudeUsageSnapshot | null): void {
@@ -39,15 +33,12 @@ export class UsageNotificationService {
         this.settingsService.getWeeklyNearLimitNotifiedPeriodId(orgId) ?? undefined,
     });
 
-    let emittedAny = false;
-
     if (decision.notifySession && decision.sessionPeriodId) {
       this.showNotification(
         'Claudometer: Session near limit',
         `5-hour usage is ${Math.round(snapshot.sessionPercent)}% (≥ 90%).`,
       );
       this.settingsService.setSessionNearLimitNotifiedPeriodId(orgId, decision.sessionPeriodId);
-      emittedAny = true;
     }
 
     if (decision.notifyWeekly && decision.weeklyPeriodId) {
@@ -56,17 +47,12 @@ export class UsageNotificationService {
         `Weekly usage is ${Math.round(snapshot.weeklyPercent)}% (≥ 90%).`,
       );
       this.settingsService.setWeeklyNearLimitNotifiedPeriodId(orgId, decision.weeklyPeriodId);
-      emittedAny = true;
     }
 
     this.lastSeenByOrg.set(orgId, {
       sessionPercent: snapshot.sessionPercent,
       weeklyPercent: snapshot.weeklyPercent,
     });
-
-    if (emittedAny) {
-      this.notificationSoundService.playAlertSound();
-    }
   }
 
   private showNotification(title: string, body: string): void {
