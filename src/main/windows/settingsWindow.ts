@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, shell } from 'electron';
 import { ipcChannels } from '../../common/ipc.ts';
 import type { ClaudeUsageSnapshot } from '../../common/types.ts';
 
@@ -31,6 +31,12 @@ export class SettingsWindowService {
         contextIsolation: true,
         preload: path.join(__dirname, 'preload.js'),
       },
+    });
+
+    // Open external links in system browser
+    this.window.webContents.setWindowOpenHandler(({ url }) => {
+      void shell.openExternal(url);
+      return { action: 'deny' };
     });
 
     if (SETTINGS_VITE_DEV_SERVER_URL) {
