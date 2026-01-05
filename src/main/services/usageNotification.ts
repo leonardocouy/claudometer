@@ -81,7 +81,10 @@ export class UsageNotificationService {
           '🎉 Claudometer: Session period reset!!!!!',
           'Your 5-hour usage window has reset. Happy prompting!',
         );
-        this.settingsService.setSessionResetNotifiedPeriodId(orgId, resetDecision.sessionResetPeriodId);
+        this.settingsService.setSessionResetNotifiedPeriodId(
+          orgId,
+          resetDecision.sessionResetPeriodId,
+        );
         emittedAny = true;
       }
 
@@ -90,7 +93,10 @@ export class UsageNotificationService {
           '🎉 Claudometer: Weekly period reset!!!!!',
           'Your weekly usage window has reset. Happy prompting!',
         );
-        this.settingsService.setWeeklyResetNotifiedPeriodId(orgId, resetDecision.weeklyResetPeriodId);
+        this.settingsService.setWeeklyResetNotifiedPeriodId(
+          orgId,
+          resetDecision.weeklyResetPeriodId,
+        );
         emittedAny = true;
       }
     }
