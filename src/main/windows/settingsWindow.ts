@@ -17,7 +17,7 @@ export class SettingsWindowService {
     }
 
     this.window = new BrowserWindow({
-      width: 520,
+      width: 540,
       height: 620,
       resizable: false,
       minimizable: false,
