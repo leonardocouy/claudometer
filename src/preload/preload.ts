@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, shell } from 'electron';
 import type {
   IpcResult,
   RendererApi,
@@ -31,6 +31,9 @@ const api: RendererApi = {
         ipcRenderer.removeListener(ipcChannels.events.snapshotUpdated, listener);
       };
     },
+  },
+  openExternal: async (url: string) => {
+    await shell.openExternal(url);
   },
 };
 

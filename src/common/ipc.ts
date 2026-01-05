@@ -45,4 +45,5 @@ export type RendererApi = {
     refreshNow: () => Promise<IpcResult<null>>;
     onSnapshotUpdated: (handler: SnapshotUpdatedHandler) => Unsubscribe;
   };
+  openExternal: (url: string) => Promise<void>;
 };

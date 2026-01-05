@@ -194,12 +194,12 @@ function renderApp(root: HTMLElement): void {
 
   githubLink.addEventListener('click', (e) => {
     e.preventDefault();
-    window.open('https://github.com/leonardocouy/claudometer', '_blank');
+    void window.api.openExternal('https://github.com/leonardocouy/claudometer');
   });
 
   issuesLink.addEventListener('click', (e) => {
     e.preventDefault();
-    window.open('https://github.com/leonardocouy/claudometer/issues', '_blank');
+    void window.api.openExternal('https://github.com/leonardocouy/claudometer/issues');
   });
 
   void loadState(
