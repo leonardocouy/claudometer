@@ -1,0 +1,47 @@
+# OpenSpec (planning/specs)
+openspec/
+
+# Research (reference material)
+research/
+
+# Beads issue tracking (local)
+.beads/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Node/Electron
+node_modules/
+dist-electron/
+out/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+*.pid
+*.seed
+
+# Whisper models (downloaded at runtime)
+models/
+
+# User data
+~/.jotly/
+
+# Local settings
+.env
