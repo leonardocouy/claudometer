@@ -37,7 +37,7 @@ Authentication is via the Claude web session cookie (`sessionKey`), sent as `Coo
 | App | Electron + TypeScript |
 | Runtime | Bun |
 | Settings | `electron-store` (non-sensitive) |
-| Secrets | OS credential store via `keytar` (session key) |
+| Secrets | Electron `safeStorage` + `electron-store` ciphertext (session key) |
 | Formatting/Lint | Biome |
 | Tests | Lightweight unit tests for parsing (framework TBD; prefer minimal) |
 

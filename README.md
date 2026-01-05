@@ -79,7 +79,7 @@ The tray will now show your Claude usage stats.
 | **System Tray** | Lives in your menu bar/system tray - always visible |
 | **Real-time Updates** | Configurable polling (minimum 10 seconds) |
 | **Multi-organization** | Supports accounts with multiple Claude orgs |
-| **Secure Storage** | Session key stored in OS keychain (macOS) or `~/.claudometer/session-key` on Linux when "Remember" is enabled |
+| **Secure Storage** | Session key stored encrypted via Electron `safeStorage` (ciphertext in `electron-store`) when available; otherwise memory-only |
 | **Status Indicators** | Tray icon changes color based on status (green=ok, red=unauthorized, orange=rate limited) |
 | **Auto-recovery** | Backs off automatically when rate-limited |
 
@@ -143,7 +143,7 @@ claudometer/
 
 ### Data Flow
 
-1. **App starts** → Loads saved session key from OS keychain (macOS) or `~/.claudometer/session-key` (Linux) if present
+1. **App starts** → Loads saved session key from encrypted storage (if available)
 2. **Every N seconds** → Polls Claude API for usage data
 3. **On response** → Parses JSON, updates tray icon color and menu text
 4. **On error** → Updates tray to show error state, stops polling if unauthorized (401/403)
@@ -178,7 +178,7 @@ claudometer/
 | Language | TypeScript 5.9 |
 | Runtime | Bun |
 | Settings Storage | `electron-store` (non-sensitive data) |
-| Secret Storage | `keytar` (macOS only - session key) |
+| Secret Storage | Electron `safeStorage` + `electron-store` (encrypted ciphertext) |
 | Linting/Formatting | Biome |
 | Testing | Bun's built-in test runner |
 
@@ -186,8 +186,8 @@ claudometer/
 
 ### Session Key Handling
 
-- **macOS**: Stored in system Keychain via `keytar` library
-- **Linux**: If "Remember" is enabled, stored in `~/.claudometer/session-key` (chmod 600)
+- **Encrypted at rest** (when available): Stored via Electron `safeStorage` and persisted only as ciphertext in `electron-store`
+- **If encryption unavailable**: Used in-memory for the current run only (no persistence)
 - **Never logged**: Session key is never included in logs, error messages, or telemetry
 - **Validation before storage**: Session key is validated against Claude API before being saved
 
@@ -223,9 +223,9 @@ Claude API is rate-limiting your requests:
 
 ### App won't start on Linux
 
-Keytar dependency is optional on Linux. If you see errors related to `keytar`:
-1. The app uses `~/.claudometer/session-key` when "Remember" is enabled (chmod 600)
-2. If you leave "Remember" off, you'll need to re-enter the key after restarting
+If the settings UI warns that encrypted storage is unavailable:
+1. The app will still work, but your session key will not persist across restarts
+2. You may need to re-enter the key after restarting
 
 ### No organizations found
 
@@ -244,7 +244,6 @@ Check the tray menu:
 ## Roadmap
 
 - [ ] Windows support
-- [ ] Persistent session key storage on Linux (via libsecret)
 - [ ] Desktop notifications when approaching usage limits
 - [ ] Historical usage graphs
 - [ ] Menu bar percentage display

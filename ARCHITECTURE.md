@@ -33,7 +33,7 @@ Claudometer is an Electron-based tray application that monitors Claude web usage
 | **App Framework** | Electron | Cross-platform desktop with system tray support |
 | **Language** | TypeScript | Type safety for complex data parsing |
 | **Settings Storage** | electron-store | Simple JSON persistence for non-sensitive data |
-| **Secrets Storage** | keytar (macOS) | OS-level credential storage for session keys |
+| **Secrets Storage** | Electron safeStorage | OS-backed encryption for session key at rest |
 | **HTTP Client** | Native fetch | Modern, built-in, no dependencies |
 | **Linting** | Biome | Fast, batteries-included linter/formatter |
 
@@ -63,8 +63,7 @@ Claudometer is an Electron-based tray application that monitors Claude web usage
      │
      ├─► SessionKeyService (src/main/services/session-key.ts)
      │   • In-memory session key (always)
-     │   • Keytar storage (macOS only, if "Remember" enabled)
-     │   • Linux fallback: ~/.claudometer/session-key (chmod 600)
+     │   • Encrypted persistence via Electron `safeStorage` (ciphertext in electron-store)
      │   • Builds "missing_key" snapshot when no key available
      │
      ├─► ClaudeApiService (src/main/services/claude-api.ts)
@@ -87,7 +86,7 @@ Claudometer is an Electron-based tray application that monitors Claude web usage
    ↓
 2. Load settings from electron-store
    ↓
-3. Load session key from keytar (macOS) or ~/.claudometer/session-key (Linux) if present
+3. Load session key from encrypted storage (if available)
    ↓
 4. Create TrayService
    ↓
@@ -171,14 +170,9 @@ Stored in `~/.config/claudometer/config.json` (Linux) or `~/Library/Application 
 // - pendingImmediate: boolean (coalesces refreshNow calls)
 ```
 
-### Secure State (OS Keychain)
+### Secure State (Encrypted Storage)
 
-**macOS**: Stored in system Keychain via `keytar`
-- Service: `claudometer`
-- Account: `session-key`
-- Value: The Claude sessionKey cookie
-
-**Linux**: Stored in `~/.claudometer/session-key` (chmod 600) when "Remember" is enabled (otherwise in-memory)
+When `safeStorage.isEncryptionAvailable()` is true, the session key is stored only as encrypted ciphertext (base64) in `electron-store`, and decrypted only in the main process.
 
 ## API Integration
 
@@ -309,8 +303,9 @@ Error snapshots include the error message:
 
 | Platform | Enabled | Storage Location | Persistence |
 |----------|---------|------------------|-------------|
-| macOS | Always | System Keychain (via keytar) | Across app restarts |
-| Linux | Optional | `~/.claudometer/session-key` (chmod 600) | Across app restarts (only if "Remember" enabled) |
+| macOS | Usually | `safeStorage` + `electron-store` ciphertext | Across app restarts |
+| Linux | Depends on DE/keyring | `safeStorage` + `electron-store` ciphertext | Across app restarts (if encryption available) |
+| Any | If encryption unavailable | In-memory only | Until app exits |
 
 #### Security Measures
 
@@ -365,7 +360,7 @@ ipcMain.handle(ipcChannels.settings.refreshNow, async () => controller.refreshNo
 - **No session key**: App runs but shows "missing_key" status
 - **Invalid session key**: Validation fails in settings UI, existing state unchanged
 - **API errors**: Tray shows last-known good data until next successful fetch
-- **Keytar unavailable (Linux)**: Uses `~/.claudometer/session-key` when "Remember" is enabled
+- **Encryption unavailable**: Session key cannot persist; UI warns and app runs memory-only
 
 ### Polling State Machine
 
@@ -459,12 +454,11 @@ To add a new persistent setting:
 ### Supporting Windows
 
 Current blockers for Windows support:
-1. **Keytar**: Optional dependency, may need alternative (e.g., node-credential-manager)
 2. **Tray icon rendering**: Uses raw RGBA buffer; test compatibility
 3. **Testing**: No Windows CI/testing currently
 
 To add Windows support:
-1. Test keytar or implement alternative credential storage
+1. Validate `safeStorage` behavior on Windows (encryption availability and persistence)
 2. Test tray icon rendering on Windows
 3. Update `package.json` platform targets
 4. Add Windows-specific build configuration

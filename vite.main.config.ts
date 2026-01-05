@@ -10,10 +10,6 @@ export default defineConfig({
   build: {
     // Don't minify to help with debugging
     minify: false,
-    rollupOptions: {
-      // Externalize native modules that can't be bundled
-      external: ['keytar'],
-    },
   },
   resolve: {
     // Ensure we're building for Node.js
