@@ -23,6 +23,7 @@ build/
 node_modules/
 dist-electron/
 out/
+.bun-tmp/
 
 # IDE
 .vscode/
