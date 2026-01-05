@@ -117,6 +117,14 @@ function renderApp(root: HTMLElement): void {
     </div>
 
     <div class="status" id="statusBox">Loading…</div>
+
+    <div class="footer">
+      <span class="footer-version">v1.0.0</span>
+      <span class="footer-separator">•</span>
+      <a href="#" id="githubLink" class="footer-link">GitHub</a>
+      <span class="footer-separator">•</span>
+      <a href="#" id="issuesLink" class="footer-link">Report Issue</a>
+    </div>
   `;
 
   const sessionKeyEl = el<HTMLInputElement>(root, '#sessionKey');
@@ -175,6 +183,20 @@ function renderApp(root: HTMLElement): void {
         storageHintEl,
       );
     }
+  });
+
+  // Footer links
+  const githubLink = el<HTMLAnchorElement>(root, '#githubLink');
+  const issuesLink = el<HTMLAnchorElement>(root, '#issuesLink');
+
+  githubLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    window.open('https://github.com/leonardocouy/claudometer', '_blank');
+  });
+
+  issuesLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    window.open('https://github.com/leonardocouy/claudometer/issues', '_blank');
   });
 
   void loadState(

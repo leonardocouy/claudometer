@@ -110,3 +110,32 @@ button:disabled {
 .error {
   color: #ffb4b4;
 }
+
+.footer {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #2a2f3a;
+  text-align: center;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.footer-version {
+  color: #9ca3af;
+}
+
+.footer-separator {
+  margin: 0 8px;
+  color: #4b5563;
+}
+
+.footer-link {
+  color: #6b7280;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.footer-link:hover {
+  color: #2b6cff;
+  text-decoration: underline;
+}
