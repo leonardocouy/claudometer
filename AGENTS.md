@@ -46,8 +46,11 @@ Authentication is via the Claude web session cookie (`sessionKey`), sent as `Coo
 ```
 claudometer/
 ├── src/
-│   ├── main/              # Electron main process (tray, settings window, polling)
-│   └── shared/            # Shared types + JSON parsing
+│   ├── main.ts            # Electron main process entry (tray-first)
+│   ├── main/              # Main process modules (tray, settings window, polling, IPC)
+│   ├── preload/           # Secure bridge (contextIsolation) exposing window.api
+│   ├── renderer/          # Vite renderers (settings window UI)
+│   └── common/            # Shared types + parsing + IPC contract
 ├── assets/                # Tray icons
 ├── openspec/              # Specs and change proposals
 ├── package.json
