@@ -1,34 +1,9 @@
-import { createRequire } from 'node:module';
-import { Notification, shell } from 'electron';
+import { Notification } from 'electron';
 import { decideNearLimitAlerts } from '../../common/nearLimitAlerts.ts';
 import type { ClaudeUsageSnapshot } from '../../common/types.ts';
 import type { SettingsService } from './settings.ts';
 
 type LastSeenPercents = { sessionPercent: number; weeklyPercent: number };
-
-const require = createRequire(import.meta.url);
-
-function tryNotifyWithNodeNotifier(title: string, body: string): boolean {
-  try {
-    const mod = require('node-notifier') as unknown;
-    const notifier = (mod as { default?: unknown })?.default ?? mod;
-    if (!notifier || typeof notifier !== 'object') return false;
-    const notify = (notifier as { notify?: unknown }).notify;
-    if (typeof notify !== 'function') return false;
-
-    (notify as (options: Record<string, unknown>) => void)({
-      title,
-      message: body,
-      sound: true,
-      wait: false,
-      appName: 'Claudometer',
-    });
-
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export class UsageNotificationService {
   private settingsService: SettingsService;
@@ -82,9 +57,7 @@ export class UsageNotificationService {
 
   private showNotification(title: string, body: string): void {
     try {
-      if (tryNotifyWithNodeNotifier(title, body)) return;
-
-      shell.beep();
+      // `silent: false` means "do not suppress OS sound" (i.e. use system default sound behavior).
       new Notification({ title, body, silent: false }).show();
     } catch {
       // Ignore notification failures (e.g. missing notification daemon on Linux).
