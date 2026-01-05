@@ -10,6 +10,10 @@ export default defineConfig({
   build: {
     // Don't minify to help with debugging
     minify: false,
+    rollupOptions: {
+      // Keep native notifier out of the bundle (it ships vendor binaries and must stay in node_modules).
+      external: ['node-notifier'],
+    },
   },
   resolve: {
     // Ensure we're building for Node.js

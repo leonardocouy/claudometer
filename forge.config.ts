@@ -16,6 +16,7 @@ const config: ForgeConfig = {
     appBundleId: appConfig.appBundleId,
     appCategoryType: appConfig.appCategory,
     asar: true,
+    asarUnpack: ['**/node-notifier/vendor/**'],
     // macOS code signing (only applied when env vars are set)
     ...(process.env.APPLE_ID &&
       process.env.APPLE_PASSWORD &&
