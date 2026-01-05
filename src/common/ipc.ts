@@ -15,6 +15,7 @@ export const ipcChannels = {
 export type SettingsState = {
   rememberSessionKey: boolean;
   refreshIntervalSeconds: number;
+  notifyOnUsageReset: boolean;
   organizations: ClaudeOrganization[];
   selectedOrganizationId?: string;
   latestSnapshot: ClaudeUsageSnapshot | null;
@@ -25,6 +26,7 @@ export type SaveSettingsPayload = {
   sessionKey: string;
   rememberSessionKey: boolean;
   refreshIntervalSeconds: number;
+  notifyOnUsageReset: boolean;
   selectedOrganizationId?: string;
 };
 

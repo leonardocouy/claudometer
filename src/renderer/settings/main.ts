@@ -63,6 +63,7 @@ async function loadState(
   sessionKeyEl: HTMLInputElement,
   rememberKeyEl: HTMLSelectElement,
   refreshIntervalEl: HTMLInputElement,
+  notifyResetEl: HTMLSelectElement,
   orgSelectEl: HTMLSelectElement,
   statusBoxEl: HTMLElement,
   storageHintEl: HTMLElement,
@@ -70,6 +71,7 @@ async function loadState(
   const state = await window.api.settings.getState();
   rememberKeyEl.value = String(Boolean(state.rememberSessionKey));
   refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
+  notifyResetEl.value = String(state.notifyOnUsageReset ?? true);
   renderOrgs(orgSelectEl, state.organizations || [], state.selectedOrganizationId);
   storageHintEl.textContent = state.encryptionAvailable
     ? ''
@@ -105,6 +107,15 @@ function renderApp(root: HTMLElement): void {
     </div>
 
     <div class="row">
+      <label for="notifyReset">Notify when usage periods reset</label>
+      <select id="notifyReset">
+        <option value="true">Yes (default)</option>
+        <option value="false">No</option>
+      </select>
+      <div class="hint">Show notifications when 5-hour session or weekly usage windows reset</div>
+    </div>
+
+    <div class="row">
       <label for="orgSelect">Organization</label>
       <select id="orgSelect"></select>
       <div class="hint">If empty, save a valid key and click Refresh.</div>
@@ -133,6 +144,7 @@ function renderApp(root: HTMLElement): void {
   const sessionKeyEl = el<HTMLInputElement>(root, '#sessionKey');
   const rememberKeyEl = el<HTMLSelectElement>(root, '#rememberKey');
   const refreshIntervalEl = el<HTMLInputElement>(root, '#refreshInterval');
+  const notifyResetEl = el<HTMLSelectElement>(root, '#notifyReset');
   const orgSelectEl = el<HTMLSelectElement>(root, '#orgSelect');
   const statusBoxEl = el<HTMLElement>(root, '#statusBox');
   const storageHintEl = el<HTMLElement>(root, '#storageHint');
@@ -148,6 +160,7 @@ function renderApp(root: HTMLElement): void {
       sessionKeyEl,
       rememberKeyEl,
       refreshIntervalEl,
+      notifyResetEl,
       orgSelectEl,
       statusBoxEl,
       storageHintEl,
@@ -161,6 +174,7 @@ function renderApp(root: HTMLElement): void {
       sessionKeyEl,
       rememberKeyEl,
       refreshIntervalEl,
+      notifyResetEl,
       orgSelectEl,
       statusBoxEl,
       storageHintEl,
@@ -172,6 +186,7 @@ function renderApp(root: HTMLElement): void {
       sessionKey: sessionKeyEl.value,
       rememberSessionKey: rememberKeyEl.value === 'true',
       refreshIntervalSeconds: Number(refreshIntervalEl.value || 60),
+      notifyOnUsageReset: notifyResetEl.value === 'true',
       selectedOrganizationId: orgSelectEl.value || undefined,
     };
     const result = await window.api.settings.save(payload);
@@ -181,6 +196,7 @@ function renderApp(root: HTMLElement): void {
         sessionKeyEl,
         rememberKeyEl,
         refreshIntervalEl,
+        notifyResetEl,
         orgSelectEl,
         statusBoxEl,
         storageHintEl,
@@ -206,6 +222,7 @@ function renderApp(root: HTMLElement): void {
     sessionKeyEl,
     rememberKeyEl,
     refreshIntervalEl,
+    notifyResetEl,
     orgSelectEl,
     statusBoxEl,
     storageHintEl,

@@ -7,6 +7,13 @@ export type NearLimitAlertDecision = {
   weeklyPeriodId: string | null;
 };
 
+export type UsageResetDecision = {
+  notifySessionReset: boolean;
+  notifyWeeklyReset: boolean;
+  sessionResetPeriodId: string | null;
+  weeklyResetPeriodId: string | null;
+};
+
 const NEAR_LIMIT_THRESHOLD_PERCENT = 90;
 const UNKNOWN_PERIOD_ID = 'unknown';
 
@@ -61,5 +68,70 @@ export function decideNearLimitAlerts(params: {
     notifyWeekly,
     sessionPeriodId: notifySession ? sessionPeriodId : null,
     weeklyPeriodId: notifyWeekly ? weeklyPeriodId : null,
+  };
+}
+
+/**
+ * Determine whether to notify about a usage period reset.
+ * A reset is detected when the current period ID differs from the last seen period ID.
+ * Does NOT notify on first observation (no baseline).
+ */
+function shouldNotifyReset(params: {
+  currentPeriodId: string;
+  lastSeenPeriodId: string | null;
+  lastNotifiedResetPeriodId: string | null;
+}): boolean {
+  // No current period ID - cannot detect reset
+  if (!params.currentPeriodId || params.currentPeriodId === UNKNOWN_PERIOD_ID) {
+    return false;
+  }
+
+  // No baseline yet - don't notify on first observation
+  if (params.lastSeenPeriodId === null) {
+    return false;
+  }
+
+  // Period hasn't changed - no reset
+  if (params.currentPeriodId === params.lastSeenPeriodId) {
+    return false;
+  }
+
+  // Already notified for this new period - don't notify again
+  if (params.lastNotifiedResetPeriodId === params.currentPeriodId) {
+    return false;
+  }
+
+  // Period changed and we haven't notified for the new period yet
+  return true;
+}
+
+export function decideUsageResets(params: {
+  currentSessionResetsAt?: string;
+  currentWeeklyResetsAt?: string;
+  lastSeenSessionPeriodId?: string;
+  lastSeenWeeklyPeriodId?: string;
+  lastNotifiedSessionResetPeriodId?: string;
+  lastNotifiedWeeklyResetPeriodId?: string;
+}): UsageResetDecision {
+  const sessionPeriodId = normalizePeriodId(params.currentSessionResetsAt);
+  const weeklyPeriodId = normalizePeriodId(params.currentWeeklyResetsAt);
+
+  const notifySessionReset = shouldNotifyReset({
+    currentPeriodId: sessionPeriodId,
+    lastSeenPeriodId: params.lastSeenSessionPeriodId?.trim() || null,
+    lastNotifiedResetPeriodId: params.lastNotifiedSessionResetPeriodId?.trim() || null,
+  });
+
+  const notifyWeeklyReset = shouldNotifyReset({
+    currentPeriodId: weeklyPeriodId,
+    lastSeenPeriodId: params.lastSeenWeeklyPeriodId?.trim() || null,
+    lastNotifiedResetPeriodId: params.lastNotifiedWeeklyResetPeriodId?.trim() || null,
+  });
+
+  return {
+    notifySessionReset,
+    notifyWeeklyReset,
+    sessionResetPeriodId: notifySessionReset ? sessionPeriodId : null,
+    weeklyResetPeriodId: notifyWeeklyReset ? weeklyPeriodId : null,
   };
 }

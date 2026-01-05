@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { decideNearLimitAlerts } from './nearLimitAlerts.ts';
+import { decideNearLimitAlerts, decideUsageResets } from './nearLimitAlerts.ts';
 
 describe('decideNearLimitAlerts', () => {
   test('does not notify below threshold', () => {
@@ -86,5 +86,83 @@ describe('decideNearLimitAlerts', () => {
     });
     expect(second.notifySession).toBe(false);
     expect(second.notifyWeekly).toBe(false);
+  });
+});
+
+describe('decideUsageResets', () => {
+  test('does not notify on first observation (no baseline)', () => {
+    const result = decideUsageResets({
+      currentSessionResetsAt: '2026-01-01T05:00:00.000Z',
+      currentWeeklyResetsAt: '2026-01-08T00:00:00.000Z',
+      // No lastSeen* - first observation
+    });
+
+    expect(result.notifySessionReset).toBe(false);
+    expect(result.notifyWeeklyReset).toBe(false);
+  });
+
+  test('does not notify when period has not changed', () => {
+    const result = decideUsageResets({
+      currentSessionResetsAt: '2026-01-01T05:00:00.000Z',
+      currentWeeklyResetsAt: '2026-01-08T00:00:00.000Z',
+      lastSeenSessionPeriodId: '2026-01-01T05:00:00.000Z',
+      lastSeenWeeklyPeriodId: '2026-01-08T00:00:00.000Z',
+    });
+
+    expect(result.notifySessionReset).toBe(false);
+    expect(result.notifyWeeklyReset).toBe(false);
+  });
+
+  test('notifies when period changes (reset detected)', () => {
+    const result = decideUsageResets({
+      currentSessionResetsAt: '2026-01-01T10:00:00.000Z',
+      currentWeeklyResetsAt: '2026-01-15T00:00:00.000Z',
+      lastSeenSessionPeriodId: '2026-01-01T05:00:00.000Z',
+      lastSeenWeeklyPeriodId: '2026-01-08T00:00:00.000Z',
+    });
+
+    expect(result.notifySessionReset).toBe(true);
+    expect(result.sessionResetPeriodId).toBe('2026-01-01T10:00:00.000Z');
+    expect(result.notifyWeeklyReset).toBe(true);
+    expect(result.weeklyResetPeriodId).toBe('2026-01-15T00:00:00.000Z');
+  });
+
+  test('does not notify again for same new period (already notified)', () => {
+    const result = decideUsageResets({
+      currentSessionResetsAt: '2026-01-01T10:00:00.000Z',
+      currentWeeklyResetsAt: '2026-01-15T00:00:00.000Z',
+      lastSeenSessionPeriodId: '2026-01-01T05:00:00.000Z',
+      lastSeenWeeklyPeriodId: '2026-01-08T00:00:00.000Z',
+      lastNotifiedSessionResetPeriodId: '2026-01-01T10:00:00.000Z',
+      lastNotifiedWeeklyResetPeriodId: '2026-01-15T00:00:00.000Z',
+    });
+
+    expect(result.notifySessionReset).toBe(false);
+    expect(result.notifyWeeklyReset).toBe(false);
+  });
+
+  test('does not notify when resets_at is missing or unknown', () => {
+    const result = decideUsageResets({
+      currentSessionResetsAt: '',
+      currentWeeklyResetsAt: undefined,
+      lastSeenSessionPeriodId: '2026-01-01T05:00:00.000Z',
+      lastSeenWeeklyPeriodId: '2026-01-08T00:00:00.000Z',
+    });
+
+    expect(result.notifySessionReset).toBe(false);
+    expect(result.notifyWeeklyReset).toBe(false);
+  });
+
+  test('session and weekly resets are independent', () => {
+    const result = decideUsageResets({
+      currentSessionResetsAt: '2026-01-01T10:00:00.000Z',
+      currentWeeklyResetsAt: '2026-01-08T00:00:00.000Z',
+      lastSeenSessionPeriodId: '2026-01-01T05:00:00.000Z',
+      lastSeenWeeklyPeriodId: '2026-01-08T00:00:00.000Z',
+    });
+
+    expect(result.notifySessionReset).toBe(true);
+    expect(result.sessionResetPeriodId).toBe('2026-01-01T10:00:00.000Z');
+    expect(result.notifyWeeklyReset).toBe(false);
   });
 });

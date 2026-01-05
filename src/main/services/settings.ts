@@ -23,6 +23,20 @@ export interface AppSettings {
    * Value is the `resets_at` string (or "unknown" if missing).
    */
   weeklyNearLimitNotifiedPeriodIdByOrg?: Record<string, string>;
+  /**
+   * Enable/disable usage reset notifications (default: true).
+   */
+  notifyOnUsageReset?: boolean;
+  /**
+   * Marker for "already notified reset" per organization for the session window.
+   * Value is the `resets_at` string that we've already notified about.
+   */
+  sessionResetNotifiedPeriodIdByOrg?: Record<string, string>;
+  /**
+   * Marker for "already notified reset" per organization for the weekly window.
+   * Value is the `resets_at` string that we've already notified about.
+   */
+  weeklyResetNotifiedPeriodIdByOrg?: Record<string, string>;
 }
 
 const schema = {
@@ -48,6 +62,18 @@ const schema = {
     default: {},
   },
   weeklyNearLimitNotifiedPeriodIdByOrg: {
+    type: 'object' as const,
+    default: {},
+  },
+  notifyOnUsageReset: {
+    type: 'boolean' as const,
+    default: true,
+  },
+  sessionResetNotifiedPeriodIdByOrg: {
+    type: 'object' as const,
+    default: {},
+  },
+  weeklyResetNotifiedPeriodIdByOrg: {
     type: 'object' as const,
     default: {},
   },
@@ -142,5 +168,43 @@ export class SettingsService {
     const map = readStringMap(this.store.get('weeklyNearLimitNotifiedPeriodIdByOrg', {}));
     map[org] = pid;
     this.store.set('weeklyNearLimitNotifiedPeriodIdByOrg', map);
+  }
+
+  getNotifyOnUsageReset(): boolean {
+    return this.store.get('notifyOnUsageReset', true);
+  }
+
+  setNotifyOnUsageReset(notify: boolean): void {
+    this.store.set('notifyOnUsageReset', notify);
+  }
+
+  getSessionResetNotifiedPeriodId(organizationId: string): string | null {
+    if (!organizationId.trim()) return null;
+    const map = readStringMap(this.store.get('sessionResetNotifiedPeriodIdByOrg', {}));
+    return map[organizationId] ?? null;
+  }
+
+  setSessionResetNotifiedPeriodId(organizationId: string, periodId: string): void {
+    const org = organizationId.trim();
+    const pid = periodId.trim();
+    if (!org || !pid) return;
+    const map = readStringMap(this.store.get('sessionResetNotifiedPeriodIdByOrg', {}));
+    map[org] = pid;
+    this.store.set('sessionResetNotifiedPeriodIdByOrg', map);
+  }
+
+  getWeeklyResetNotifiedPeriodId(organizationId: string): string | null {
+    if (!organizationId.trim()) return null;
+    const map = readStringMap(this.store.get('weeklyResetNotifiedPeriodIdByOrg', {}));
+    return map[organizationId] ?? null;
+  }
+
+  setWeeklyResetNotifiedPeriodId(organizationId: string, periodId: string): void {
+    const org = organizationId.trim();
+    const pid = periodId.trim();
+    if (!org || !pid) return;
+    const map = readStringMap(this.store.get('weeklyResetNotifiedPeriodIdByOrg', {}));
+    map[org] = pid;
+    this.store.set('weeklyResetNotifiedPeriodIdByOrg', map);
   }
 }

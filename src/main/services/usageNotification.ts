@@ -1,14 +1,16 @@
 import { Notification } from 'electron';
-import { decideNearLimitAlerts } from '../../common/nearLimitAlerts.ts';
+import { decideNearLimitAlerts, decideUsageResets } from '../../common/nearLimitAlerts.ts';
 import type { ClaudeUsageSnapshot } from '../../common/types.ts';
 import type { SettingsService } from './settings.ts';
 import { tryTerminalBell } from './terminalBell.ts';
 
 type LastSeenPercents = { sessionPercent: number; weeklyPercent: number };
+type LastSeenPeriodIds = { sessionPeriodId: string; weeklyPeriodId: string };
 
 export class UsageNotificationService {
   private settingsService: SettingsService;
   private lastSeenByOrg = new Map<string, LastSeenPercents>();
+  private lastSeenPeriodIdsByOrg = new Map<string, LastSeenPeriodIds>();
 
   constructor(settingsService: SettingsService) {
     this.settingsService = settingsService;
@@ -38,7 +40,7 @@ export class UsageNotificationService {
 
     if (decision.notifySession && decision.sessionPeriodId) {
       this.showNotification(
-        'Claudometer: Session near limit',
+        '⚠️ Claudometer: Session near limit',
         `5-hour usage is ${Math.round(snapshot.sessionPercent)}% (≥ 90%).`,
       );
       this.settingsService.setSessionNearLimitNotifiedPeriodId(orgId, decision.sessionPeriodId);
@@ -47,7 +49,7 @@ export class UsageNotificationService {
 
     if (decision.notifyWeekly && decision.weeklyPeriodId) {
       this.showNotification(
-        'Claudometer: Weekly near limit',
+        '⚠️ Claudometer: Weekly near limit',
         `Weekly usage is ${Math.round(snapshot.weeklyPercent)}% (≥ 90%).`,
       );
       this.settingsService.setWeeklyNearLimitNotifiedPeriodId(orgId, decision.weeklyPeriodId);
@@ -57,6 +59,47 @@ export class UsageNotificationService {
     this.lastSeenByOrg.set(orgId, {
       sessionPercent: snapshot.sessionPercent,
       weeklyPercent: snapshot.weeklyPercent,
+    });
+
+    // Check for usage period resets
+    if (this.settingsService.getNotifyOnUsageReset()) {
+      const previousPeriods = this.lastSeenPeriodIdsByOrg.get(orgId);
+
+      const resetDecision = decideUsageResets({
+        currentSessionResetsAt: snapshot.sessionResetsAt,
+        currentWeeklyResetsAt: snapshot.weeklyResetsAt,
+        lastSeenSessionPeriodId: previousPeriods?.sessionPeriodId,
+        lastSeenWeeklyPeriodId: previousPeriods?.weeklyPeriodId,
+        lastNotifiedSessionResetPeriodId:
+          this.settingsService.getSessionResetNotifiedPeriodId(orgId) ?? undefined,
+        lastNotifiedWeeklyResetPeriodId:
+          this.settingsService.getWeeklyResetNotifiedPeriodId(orgId) ?? undefined,
+      });
+
+      if (resetDecision.notifySessionReset && resetDecision.sessionResetPeriodId) {
+        this.showNotification(
+          '🎉 Claudometer: Session period reset!!!!!',
+          'Your 5-hour usage window has reset. Happy prompting!',
+        );
+        this.settingsService.setSessionResetNotifiedPeriodId(orgId, resetDecision.sessionResetPeriodId);
+        emittedAny = true;
+      }
+
+      if (resetDecision.notifyWeeklyReset && resetDecision.weeklyResetPeriodId) {
+        this.showNotification(
+          '🎉 Claudometer: Weekly period reset!!!!!',
+          'Your weekly usage window has reset. Happy prompting!',
+        );
+        this.settingsService.setWeeklyResetNotifiedPeriodId(orgId, resetDecision.weeklyResetPeriodId);
+        emittedAny = true;
+      }
+    }
+
+    // Always update the baseline period IDs (even if notifications are disabled)
+    // so that enabling notifications later works predictably
+    this.lastSeenPeriodIdsByOrg.set(orgId, {
+      sessionPeriodId: snapshot.sessionResetsAt ?? '',
+      weeklyPeriodId: snapshot.weeklyResetsAt ?? '',
     });
 
     if (emittedAny && process.platform === 'linux') {

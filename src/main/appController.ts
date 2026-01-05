@@ -70,6 +70,7 @@ export class AppController {
     return {
       rememberSessionKey: this.settingsService.getRememberSessionKey(),
       refreshIntervalSeconds: this.settingsService.getRefreshIntervalSeconds(),
+      notifyOnUsageReset: this.settingsService.getNotifyOnUsageReset(),
       organizations: this.organizations,
       selectedOrganizationId: this.settingsService.getSelectedOrganizationId(),
       latestSnapshot: this.latestSnapshot,
@@ -134,6 +135,7 @@ export class AppController {
       this.settingsService.setSelectedOrganizationId(parsed.selectedOrganizationId);
     }
     this.settingsService.setRememberSessionKey(Boolean(parsed.rememberSessionKey));
+    this.settingsService.setNotifyOnUsageReset(Boolean(parsed.notifyOnUsageReset));
 
     await this.refreshNow();
     return { ok: true, value: null };
