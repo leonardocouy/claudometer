@@ -3,6 +3,7 @@ import { type ClaudeOrganization, type ClaudeUsageSnapshot, nowIso } from '../co
 import { type ClaudeApiService, getClaudeWebRequestErrorStatus } from './services/claudeApi.ts';
 import type { SessionKeyService } from './services/sessionKey.ts';
 import type { SettingsService } from './services/settings.ts';
+import type { UsageNotificationService } from './services/usageNotification.ts';
 import type { TrayService } from './tray.ts';
 
 function sanitizeMessage(message: string): string {
@@ -22,6 +23,7 @@ export class AppController {
   private sessionKeyService: SessionKeyService;
   private claudeApiService: ClaudeApiService;
   private trayService: TrayService;
+  private usageNotificationService: UsageNotificationService;
 
   private organizations: ClaudeOrganization[] = [];
   private latestSnapshot: ClaudeUsageSnapshot | null = null;
@@ -38,11 +40,13 @@ export class AppController {
     sessionKeyService: SessionKeyService;
     claudeApiService: ClaudeApiService;
     trayService: TrayService;
+    usageNotificationService: UsageNotificationService;
   }) {
     this.settingsService = options.settingsService;
     this.sessionKeyService = options.sessionKeyService;
     this.claudeApiService = options.claudeApiService;
     this.trayService = options.trayService;
+    this.usageNotificationService = options.usageNotificationService;
   }
 
   onSnapshotUpdated(listener: (snapshot: ClaudeUsageSnapshot | null) => void): () => void {
@@ -243,6 +247,7 @@ export class AppController {
 
     const snapshot = await this.claudeApiService.fetchUsageSnapshot(sessionKey, orgId);
     this.updateSnapshot(snapshot);
+    this.usageNotificationService.maybeNotify(snapshot);
 
     if (snapshot.status === 'unauthorized') {
       this.stop();

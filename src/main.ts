@@ -8,6 +8,7 @@ import { registerIpcHandlers } from './main/ipc/register.ts';
 import { ClaudeApiService } from './main/services/claudeApi.ts';
 import { SessionKeyService } from './main/services/sessionKey.ts';
 import { SettingsService } from './main/services/settings.ts';
+import { UsageNotificationService } from './main/services/usageNotification.ts';
 import { TrayService } from './main/tray.ts';
 import { SettingsWindowService } from './main/windows/settingsWindow.ts';
 
@@ -34,6 +35,7 @@ async function initialize(): Promise<void> {
   const settingsService = new SettingsService();
   const sessionKeyService = new SessionKeyService(settingsService);
   const claudeApiService = new ClaudeApiService();
+  const usageNotificationService = new UsageNotificationService(settingsService);
 
   tray = new TrayService({
     onOpenSettings: openSettings,
@@ -46,6 +48,7 @@ async function initialize(): Promise<void> {
     sessionKeyService,
     claudeApiService,
     trayService: tray,
+    usageNotificationService,
   });
 
   controller.onSnapshotUpdated((snapshot) => {

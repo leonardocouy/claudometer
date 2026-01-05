@@ -13,6 +13,16 @@ export interface AppSettings {
    * Plaintext MUST never be persisted.
    */
   sessionKeyEncryptedB64?: string;
+  /**
+   * Marker for "already notified near-limit" per organization for the session window.
+   * Value is the `resets_at` string (or "unknown" if missing).
+   */
+  sessionNearLimitNotifiedPeriodIdByOrg?: Record<string, string>;
+  /**
+   * Marker for "already notified near-limit" per organization for the weekly window.
+   * Value is the `resets_at` string (or "unknown" if missing).
+   */
+  weeklyNearLimitNotifiedPeriodIdByOrg?: Record<string, string>;
 }
 
 const schema = {
@@ -33,7 +43,28 @@ const schema = {
     type: 'string' as const,
     default: '',
   },
+  sessionNearLimitNotifiedPeriodIdByOrg: {
+    type: 'object' as const,
+    default: {},
+  },
+  weeklyNearLimitNotifiedPeriodIdByOrg: {
+    type: 'object' as const,
+    default: {},
+  },
 };
+
+function readStringMap(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const record = value as Record<string, unknown>;
+  const mapped: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(record)) {
+    if (!key.trim()) continue;
+    if (typeof entry !== 'string') continue;
+    if (!entry.trim()) continue;
+    mapped[key] = entry;
+  }
+  return mapped;
+}
 
 export class SettingsService {
   private store: Store<AppSettings>;
@@ -81,5 +112,35 @@ export class SettingsService {
 
   clearSessionKeyEncryptedB64(): void {
     this.store.set('sessionKeyEncryptedB64', '');
+  }
+
+  getSessionNearLimitNotifiedPeriodId(organizationId: string): string | null {
+    if (!organizationId.trim()) return null;
+    const map = readStringMap(this.store.get('sessionNearLimitNotifiedPeriodIdByOrg', {}));
+    return map[organizationId] ?? null;
+  }
+
+  setSessionNearLimitNotifiedPeriodId(organizationId: string, periodId: string): void {
+    const org = organizationId.trim();
+    const pid = periodId.trim();
+    if (!org || !pid) return;
+    const map = readStringMap(this.store.get('sessionNearLimitNotifiedPeriodIdByOrg', {}));
+    map[org] = pid;
+    this.store.set('sessionNearLimitNotifiedPeriodIdByOrg', map);
+  }
+
+  getWeeklyNearLimitNotifiedPeriodId(organizationId: string): string | null {
+    if (!organizationId.trim()) return null;
+    const map = readStringMap(this.store.get('weeklyNearLimitNotifiedPeriodIdByOrg', {}));
+    return map[organizationId] ?? null;
+  }
+
+  setWeeklyNearLimitNotifiedPeriodId(organizationId: string, periodId: string): void {
+    const org = organizationId.trim();
+    const pid = periodId.trim();
+    if (!org || !pid) return;
+    const map = readStringMap(this.store.get('weeklyNearLimitNotifiedPeriodIdByOrg', {}));
+    map[org] = pid;
+    this.store.set('weeklyNearLimitNotifiedPeriodIdByOrg', map);
   }
 }
