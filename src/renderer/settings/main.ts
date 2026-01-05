@@ -119,11 +119,14 @@ function renderApp(root: HTMLElement): void {
     <div class="status" id="statusBox">Loading…</div>
 
     <div class="footer">
-      <span class="footer-version">v1.0.0</span>
-      <span class="footer-separator">•</span>
-      <a href="#" id="githubLink" class="footer-link">GitHub</a>
-      <span class="footer-separator">•</span>
-      <a href="#" id="issuesLink" class="footer-link">Report Issue</a>
+      <div class="footer-tagline">Free and open source ❤️</div>
+      <div class="footer-links">
+        <span class="footer-version">v1.0.0</span>
+        <span class="footer-separator">•</span>
+        <a href="#" id="githubLink" class="footer-link">GitHub</a>
+        <span class="footer-separator">•</span>
+        <a href="#" id="issuesLink" class="footer-link">Report Issue</a>
+      </div>
     </div>
   `;
 

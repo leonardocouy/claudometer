@@ -116,8 +116,18 @@ button:disabled {
   padding-top: 16px;
   border-top: 1px solid #2a2f3a;
   text-align: center;
-  font-size: 11px;
+  font-size: 12px;
   color: #6b7280;
+}
+
+.footer-tagline {
+  margin-bottom: 8px;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.footer-links {
+  font-size: 12px;
 }
 
 .footer-version {
