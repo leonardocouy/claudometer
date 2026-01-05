@@ -106,14 +106,14 @@ export class TrayService {
 
     const header =
       snapshot?.status === 'ok'
-        ? 'Claude Usage'
+        ? 'Claudometer - Claude Usage'
         : snapshot?.status === 'missing_key'
-          ? 'Claude Usage (needs session key)'
+          ? 'Claudometer - Claude Usage (needs session key)'
           : snapshot?.status === 'unauthorized'
-            ? 'Claude Usage (unauthorized)'
+            ? 'Claudometer - Claude Usage (unauthorized)'
             : snapshot?.status === 'rate_limited'
-              ? 'Claude Usage (rate limited)'
-              : 'Claude Usage (error)';
+              ? 'Claudometer - Claude Usage (rate limited)'
+              : 'Claudometer - Claude Usage (error)';
 
     const items: Electron.MenuItemConstructorOptions[] = [
       { label: header, enabled: false },
