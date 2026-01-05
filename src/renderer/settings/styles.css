@@ -2,6 +2,10 @@
   color-scheme: dark;
 }
 
+* {
+  box-sizing: border-box;
+}
+
 body {
   font-family:
     system-ui,
@@ -12,6 +16,7 @@ body {
   margin: 16px;
   background: #0f1115;
   color: #e6e8ee;
+  overflow-x: hidden;
 }
 
 h1 {
@@ -39,6 +44,9 @@ select {
   border: 1px solid #2a2f3a;
   background: #151923;
   color: #e6e8ee;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hint {
