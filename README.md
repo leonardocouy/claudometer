@@ -103,13 +103,13 @@ The app polls usage at configurable intervals and updates the tray menu text.
    - Copy the `sessionKey` value
 
    ### Option B: CLI Mode (OAuth) - Recommended
-   - Install Claude Code CLI: https://docs.anthropic.com/en/docs/agent-code
+   - Install Claude Code: https://docs.anthropic.com/en/docs/agent-code
    - Authenticate once:
      ```bash
      claude
      # Follow OAuth flow in browser
      ```
-   - Claude Code CLI stores OAuth credentials locally after login
+   - Claude Code stores OAuth credentials locally after login
 
 3. **Run in development mode**
    ```bash
@@ -120,7 +120,7 @@ The app polls usage at configurable intervals and updates the tray menu text.
    - Click the tray icon → **"Open Settings..."**
    - Select your usage source:
      - **Claude Web**: paste your session key (cookie)
-     - **Claude Code CLI**: uses your Claude Code CLI login (run `claude login` if needed)
+     - **Claude Code**: uses your Claude Code login (run `claude login` if needed)
    - Set refresh interval (default: 60s)
    - Save
 
@@ -133,7 +133,7 @@ The tray will now show your Claude usage stats.
 | **Dual Authentication** | Web mode (session key) or CLI mode (OAuth API) - your choice |
 | **System Tray** | Lives in your menu bar/system tray - always visible |
 | **Real-time Updates** | Configurable polling (minimum 10 seconds) |
-| **Usage Sources** | Claude Web (session key) or Claude Code CLI (OAuth credentials) |
+| **Usage Sources** | Claude Web (session key) or Claude Code (OAuth credentials) |
 | **Multi-organization** | Supports accounts with multiple Claude orgs |
 | **Secure Storage** | Session key is stored only in OS Keychain/Secret Service (or kept in memory if “Remember” is disabled) |
 | **Status States** | Handles ok, unauthorized, rate limited, and missing key states |
@@ -253,7 +253,7 @@ Checklist:
 1. Tray starts with no windows; menu shows snapshot lines.
 2. “Open Settings…” creates/focuses the settings window.
 3. Web mode: saving a valid session key refreshes snapshot and updates tray.
-4. CLI mode: after you’ve logged into Claude Code CLI, refresh shows snapshot and updates tray.
+4. CLI mode: after you’ve logged into Claude Code, refresh shows snapshot and updates tray.
 5. “Remember session key” (web only) persists across restart (Keychain / Secret Service).
 6. Disabling “Remember” keeps the key memory-only (does not persist across restart).
 7. Notifications: near-limit alerts (>= 90%) and reset notifications (when enabled).
@@ -270,7 +270,7 @@ Checklist:
 - **Validation before storage**: Session key is validated against Claude API before being saved
 
 **CLI Mode:**
-- **Managed by Claude Code CLI**: Uses your Claude Code CLI OAuth session
+- **Managed by Claude Code**: Uses your Claude Code OAuth session
 - **Auto-refresh**: Tokens are refreshed automatically by the CLI
 - **Claudometer reads only**: App only reads credentials, never modifies them
 - **No persistence**: Claudometer doesn't store or cache OAuth tokens
@@ -309,7 +309,7 @@ Your session key is invalid or expired:
 
 **CLI Mode:**
 Your OAuth token expired:
-1. Re-authenticate with Claude Code CLI:
+1. Re-authenticate with Claude Code:
    ```bash
    claude
    # Follow OAuth flow again
@@ -342,7 +342,7 @@ Check the tray menu:
 
 ### CLI mode not working
 
-If you selected "Claude Code CLI" but see "No OAuth credentials found":
+If you selected "Claude Code" but see "No OAuth credentials found":
 1. **Authenticate (or re-authenticate)**:
    ```bash
    claude login
