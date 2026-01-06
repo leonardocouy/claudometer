@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/leonardocouy/claudometer/compare/v1.4.0...v1.5.0) (2026-01-06)
+
+
+### Features
+
+* Add OAuth API support for Claude Code CLI usage tracking ([#17](https://github.com/leonardocouy/claudometer/issues/17)) ([c1aeb51](https://github.com/leonardocouy/claudometer/commit/c1aeb5102a0fc5102b26cfac7763843e51b5e907))
+
 ## [1.4.0](https://github.com/leonardocouy/claudometer/compare/v1.3.1...v1.4.0) (2026-01-06)
 
 
