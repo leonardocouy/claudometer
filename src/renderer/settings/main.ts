@@ -234,7 +234,7 @@ function renderApp(root: HTMLElement): void {
     <div class="status" id="statusBox">Loading…</div>
 
     <div class="footer">
-      <div class="footer-tagline">Free and open source</div>
+      <div class="footer-tagline">Free and open source ❤️</div>
       <div class="footer-links">
         <span class="footer-version">v1.3.0</span>
         <span class="footer-separator">•</span>
