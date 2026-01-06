@@ -9,15 +9,6 @@ export interface AppSettings {
   selectedOrganizationId?: string;
   rememberSessionKey: boolean;
   /**
-   * Usage data source: 'web' (Claude web API) or 'cli' (Claude Code CLI).
-   * Default is 'web'.
-   */
-  usageSource?: 'web' | 'cli';
-  /**
-   * Path to the `claude` CLI binary. Default is 'claude'.
-   */
-  claudeCliPath?: string;
-  /**
    * Encrypted ciphertext of Claude `sessionKey`, base64-encoded.
    * Plaintext MUST never be persisted.
    */
@@ -61,15 +52,6 @@ const schema = {
   rememberSessionKey: {
     type: 'boolean' as const,
     default: false,
-  },
-  usageSource: {
-    type: 'string' as const,
-    enum: ['web', 'cli'],
-    default: 'web',
-  },
-  claudeCliPath: {
-    type: 'string' as const,
-    default: 'claude',
   },
   sessionKeyEncryptedB64: {
     type: 'string' as const,
@@ -224,23 +206,5 @@ export class SettingsService {
     const map = readStringMap(this.store.get('weeklyResetNotifiedPeriodIdByOrg', {}));
     map[org] = pid;
     this.store.set('weeklyResetNotifiedPeriodIdByOrg', map);
-  }
-
-  getUsageSource(): 'web' | 'cli' {
-    const value = this.store.get('usageSource', 'web');
-    return value === 'cli' ? 'cli' : 'web';
-  }
-
-  setUsageSource(source: 'web' | 'cli'): void {
-    this.store.set('usageSource', source);
-  }
-
-  getClaudeCliPath(): string {
-    const value = this.store.get('claudeCliPath', 'claude');
-    return value?.trim() || 'claude';
-  }
-
-  setClaudeCliPath(path: string): void {
-    this.store.set('claudeCliPath', path.trim() || 'claude');
   }
 }
