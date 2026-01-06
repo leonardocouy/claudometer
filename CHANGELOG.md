@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/leonardocouy/claudometer/compare/v1.3.1...v1.4.0) (2026-01-06)
+
+
+### Features
+
+* add CLI usage source option (experimental) ([#13](https://github.com/leonardocouy/claudometer/issues/13)) ([d5646bc](https://github.com/leonardocouy/claudometer/commit/d5646bc481c407dc8310d8dedc1c1cd46515eb09))
+
 ## [1.3.1](https://github.com/leonardocouy/claudometer/compare/v1.3.0...v1.3.1) (2026-01-06)
 
 
