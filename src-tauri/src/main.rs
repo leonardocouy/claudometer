@@ -1,4 +1,3 @@
 fn main() {
-  claudometer_lib::run()
+    claudometer_lib::run()
 }
-

@@ -10,5 +10,5 @@ mod usage_alerts;
 mod windows;
 
 pub fn run() {
-  app::run();
+    app::run();
 }
