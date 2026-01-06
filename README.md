@@ -109,7 +109,7 @@ The app polls usage at configurable intervals and updates the tray menu text.
      claude
      # Follow OAuth flow in browser
      ```
-   - Credentials saved to `~/.claude/.credentials.json` automatically
+   - Claude Code CLI stores OAuth credentials locally after login
 
 3. **Run in development mode**
    ```bash
@@ -120,7 +120,7 @@ The app polls usage at configurable intervals and updates the tray menu text.
    - Click the tray icon → **"Open Settings..."**
    - Select your usage source:
      - **Claude Web**: paste your session key (cookie)
-     - **Claude Code CLI**: reads `~/.claude/.credentials.json` (run `claude login`)
+     - **Claude Code CLI**: uses your Claude Code CLI login (run `claude login` if needed)
    - Set refresh interval (default: 60s)
    - Save
 
@@ -253,7 +253,7 @@ Checklist:
 1. Tray starts with no windows; menu shows snapshot lines.
 2. “Open Settings…” creates/focuses the settings window.
 3. Web mode: saving a valid session key refreshes snapshot and updates tray.
-4. CLI mode: with `~/.claude/.credentials.json` present, refresh shows snapshot and updates tray.
+4. CLI mode: after you’ve logged into Claude Code CLI, refresh shows snapshot and updates tray.
 5. “Remember session key” (web only) persists across restart (Keychain / Secret Service).
 6. Disabling “Remember” keeps the key memory-only (does not persist across restart).
 7. Notifications: near-limit alerts (>= 90%) and reset notifications (when enabled).
@@ -270,7 +270,7 @@ Checklist:
 - **Validation before storage**: Session key is validated against Claude API before being saved
 
 **CLI Mode:**
-- **Managed by Claude CLI**: OAuth tokens stored in `~/.claude/.credentials.json` (managed by Claude Code CLI)
+- **Managed by Claude Code CLI**: OAuth tokens are stored locally by the CLI after `claude login`
 - **Auto-refresh**: Tokens are refreshed automatically by the CLI
 - **Claudometer reads only**: App only reads credentials, never modifies them
 - **No persistence**: Claudometer doesn't store or cache OAuth tokens
@@ -343,20 +343,11 @@ Check the tray menu:
 ### CLI mode not working
 
 If you selected "Claude Code CLI" but see "No OAuth credentials found":
-1. **Check credentials file exists**:
+1. **Authenticate (or re-authenticate)**:
    ```bash
-   ls -la ~/.claude/.credentials.json
+   claude login
    ```
-2. **If missing, authenticate**:
-   ```bash
-   claude
-   # Follow OAuth flow in browser
-   ```
-3. **Check file permissions**:
-   ```bash
-   chmod 600 ~/.claude/.credentials.json
-   ```
-4. **Restart app** to reload credentials
+2. **Restart app** to reload credentials
 
 ## Roadmap
 

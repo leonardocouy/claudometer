@@ -160,7 +160,7 @@ function renderApp(root: HTMLElement): void {
         <option value="cli">Claude Code CLI</option>
       </select>
       <div class="hint" id="cliHint" hidden>
-        CLI mode reads <code>~/.claude/.credentials.json</code>. If missing, run <code>claude login</code>.
+        CLI mode uses your Claude Code CLI login to fetch usage. If it isn't set up yet, run <code>claude login</code>.
       </div>
     </div>
 
