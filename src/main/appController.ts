@@ -169,7 +169,6 @@ export class AppController {
     this.settingsService.setNotifyOnUsageReset(Boolean(parsed.notifyOnUsageReset));
     this.settingsService.setUsageSource(usageSource);
     this.settingsService.setClaudeCliPath(claudeCliPath);
-    this.claudeCliService.setCliPath(claudeCliPath);
 
     await this.refreshNow();
     return { ok: true, value: null };

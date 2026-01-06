@@ -204,20 +204,20 @@ function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
   const weeklyPercent = Math.round(data.seven_day?.utilization ?? 0);
   const weeklyResetsAt = data.seven_day?.resets_at;
 
-  // Model-specific weekly usage (fallback: Sonnet → Opus → 0)
-  // Matches Web mode parser preference (parser.ts:88)
+  // Model-specific weekly usage (fallback: Opus → Sonnet → 0)
+  // TODO: Task 2.5 (DEFERRED) - Support multiple models instead of picking one
   let modelWeeklyPercent = 0;
   let modelWeeklyName: string | undefined;
   let modelWeeklyResetsAt: string | undefined;
 
-  if (data.seven_day_sonnet) {
-    modelWeeklyPercent = Math.round(data.seven_day_sonnet.utilization ?? 0);
-    modelWeeklyName = 'Sonnet';
-    modelWeeklyResetsAt = data.seven_day_sonnet.resets_at;
-  } else if (data.seven_day_opus) {
+  if (data.seven_day_opus) {
     modelWeeklyPercent = Math.round(data.seven_day_opus.utilization ?? 0);
     modelWeeklyName = 'Opus';
     modelWeeklyResetsAt = data.seven_day_opus.resets_at;
+  } else if (data.seven_day_sonnet) {
+    modelWeeklyPercent = Math.round(data.seven_day_sonnet.utilization ?? 0);
+    modelWeeklyName = 'Sonnet';
+    modelWeeklyResetsAt = data.seven_day_sonnet.resets_at;
   }
 
   const snapshot = {
@@ -280,8 +280,4 @@ export async function fetchOAuthUsageSnapshot(): Promise<ClaudeUsageSnapshot> {
   }
 }
 
-export class ClaudeOAuthApiService {
-  async fetchUsageSnapshot(): Promise<ClaudeUsageSnapshot> {
-    return fetchOAuthUsageSnapshot();
-  }
-}
+// ClaudeOAuthApiService class removed - use fetchOAuthUsageSnapshot() directly
