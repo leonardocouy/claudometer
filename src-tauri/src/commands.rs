@@ -477,7 +477,7 @@ async fn maybe_notify_usage<R: Runtime>(
 }
 
 fn compute_next_delay_ms<R: Runtime>(state: &AppState<R>, snapshot: &ClaudeUsageSnapshot) -> u64 {
-  let base_seconds = state.settings.get_u64(KEY_REFRESH_INTERVAL_SECONDS, 60).max(10);
+  let base_seconds = state.settings.get_u64(KEY_REFRESH_INTERVAL_SECONDS, 60).max(30);
   let base_ms = base_seconds * 1000;
 
   let (base, ratio) = if snapshot.status() == UsageStatus::RateLimited {
@@ -749,10 +749,10 @@ pub async fn settings_save<R: Runtime>(
 ) -> CommandResult<IpcResult<()>> {
   let usage_source = payload.usage_source;
 
-  if payload.refresh_interval_seconds < 10 {
+  if payload.refresh_interval_seconds < 30 {
     return Ok(IpcResult::err(
       "VALIDATION",
-      "Refresh interval must be >= 10 seconds.",
+      "Refresh interval must be >= 30 seconds.",
     ));
   }
 

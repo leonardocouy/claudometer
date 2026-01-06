@@ -116,7 +116,7 @@ async function loadState(
   cliHintEl: HTMLElement,
   sessionKeyEl: HTMLInputElement,
   rememberKeyEl: HTMLSelectElement,
-  refreshIntervalEl: HTMLInputElement,
+  refreshIntervalEl: HTMLSelectElement,
   notifyResetEl: HTMLSelectElement,
   autostartEl: HTMLSelectElement,
   updatesStartupEl: HTMLSelectElement,
@@ -157,7 +157,7 @@ function renderApp(root: HTMLElement): void {
       <label for="usageSource">Usage data source</label>
       <select id="usageSource">
         <option value="web">Claude Web (session key cookie)</option>
-        <option value="cli">Claude Code CLI (OAuth credentials)</option>
+        <option value="cli">Claude Code CLI</option>
       </select>
       <div class="hint" id="cliHint" hidden>
         CLI mode reads <code>~/.claude/.credentials.json</code>. If missing, run <code>claude login</code>.
@@ -180,18 +180,23 @@ function renderApp(root: HTMLElement): void {
       <div class="hint" id="storageHint"></div>
     </div>
 
-    <div class="row inline">
-      <div>
-        <label for="refreshInterval">Refresh interval (seconds)</label>
-        <input id="refreshInterval" type="number" min="10" step="1" />
-      </div>
-    </div>
-
     <div class="row">
       <label for="orgSelect">Organization</label>
       <select id="orgSelect"></select>
       <div class="hint">If empty, save a valid key and click Refresh.</div>
     </div>
+    </div>
+
+    <div class="row">
+      <label for="refreshInterval">Refresh interval</label>
+      <select id="refreshInterval">
+        <option value="30">30 seconds</option>
+        <option value="60">1 minute (default)</option>
+        <option value="120">2 minutes</option>
+        <option value="300">5 minutes</option>
+        <option value="600">10 minutes</option>
+      </select>
+      <div class="hint">How often to check Claude usage</div>
     </div>
 
     <div class="row">
@@ -245,7 +250,7 @@ function renderApp(root: HTMLElement): void {
   const cliHintEl = el<HTMLElement>(root, '#cliHint');
   const sessionKeyEl = el<HTMLInputElement>(root, '#sessionKey');
   const rememberKeyEl = el<HTMLSelectElement>(root, '#rememberKey');
-  const refreshIntervalEl = el<HTMLInputElement>(root, '#refreshInterval');
+  const refreshIntervalEl = el<HTMLSelectElement>(root, '#refreshInterval');
   const notifyResetEl = el<HTMLSelectElement>(root, '#notifyReset');
   const autostartEl = el<HTMLSelectElement>(root, '#autostart');
   const updatesStartupEl = el<HTMLSelectElement>(root, '#updatesStartup');
