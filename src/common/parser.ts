@@ -46,7 +46,7 @@ export function parseClaudeUsageFromJson(
   const weeklyPercent = parseUtilizationPercent(sevenDay?.utilization);
   const weeklyResetsAt = readString(sevenDay?.resets_at);
 
-  const modelWeekly = readModelWeeklyUsage(root);
+  const models = readAllModelWeeklyUsage(root);
 
   return {
     status: 'ok',
@@ -55,9 +55,7 @@ export function parseClaudeUsageFromJson(
     sessionResetsAt,
     weeklyPercent,
     weeklyResetsAt,
-    modelWeeklyPercent: modelWeekly.percent,
-    modelWeeklyName: modelWeekly.name,
-    modelWeeklyResetsAt: modelWeekly.resetsAt,
+    models,
     lastUpdatedAt,
   };
 }
@@ -78,39 +76,47 @@ function titleCase(value: string): string {
     .join(' ');
 }
 
-function readModelWeeklyUsage(root: JsonObject): {
+/**
+ * Read all model-specific weekly usage data from API response
+ * Returns an array of all models found, sorted by preference (Sonnet, Opus, others)
+ */
+function readAllModelWeeklyUsage(root: JsonObject): Array<{
+  name: string;
   percent: number;
-  name?: string;
   resetsAt?: string;
-} {
-  // The web API has historically returned `seven_day_opus`, but some accounts appear to get
-  // `seven_day_sonnet` (and potentially other `seven_day_*` keys). Prefer Sonnet if present.
-  const preferredKeys = ['seven_day_sonnet', 'seven_day_opus'];
+}> {
+  const models: Array<{ name: string; percent: number; resetsAt?: string }> = [];
+  const preferredOrder = ['seven_day_sonnet', 'seven_day_opus'];
+  const seen = new Set<string>();
 
-  for (const key of preferredKeys) {
+  // First, add preferred models in order if they exist
+  for (const key of preferredOrder) {
     const period = readObject(root[key]);
     if (period) {
-      return {
-        percent: parseUtilizationPercent(period.utilization),
+      seen.add(key);
+      models.push({
         name: titleCase(key.replace('seven_day_', '')),
+        percent: parseUtilizationPercent(period.utilization),
         resetsAt: readString(period.resets_at),
-      };
+      });
     }
   }
 
+  // Then add any other seven_day_* models not already seen
   for (const [key, value] of Object.entries(root)) {
     if (!key.startsWith('seven_day_')) continue;
     if (key === 'seven_day') continue;
+    if (seen.has(key)) continue;
+
     const period = readObject(value);
     if (!period) continue;
-    const percent = parseUtilizationPercent(period.utilization);
-    if (percent === 0) continue;
-    return {
-      percent,
+
+    models.push({
       name: titleCase(key.replace('seven_day_', '')),
+      percent: parseUtilizationPercent(period.utilization),
       resetsAt: readString(period.resets_at),
-    };
+    });
   }
 
-  return { percent: 0 };
+  return models;
 }

@@ -85,14 +85,21 @@ function renderSnapshotToElement(
   );
   statusBoxEl.appendChild(document.createElement('br'));
 
-  const modelName = snapshot.modelWeeklyName || 'Model';
-  const modelPercent = Math.round(snapshot.modelWeeklyPercent);
-  let modelText = `${modelName} (weekly): ${modelPercent}%`;
-  if (snapshot.modelWeeklyResetsAt) {
-    modelText += ` (resets ${new Date(snapshot.modelWeeklyResetsAt).toLocaleString()})`;
+  // Display first model from array (settings UI shows single model for simplicity)
+  const firstModel = snapshot.models[0];
+  if (firstModel) {
+    const modelName = firstModel.name;
+    const modelPercent = Math.round(firstModel.percent);
+    let modelText = `${modelName} (weekly): ${modelPercent}%`;
+    if (firstModel.resetsAt) {
+      modelText += ` (resets ${new Date(firstModel.resetsAt).toLocaleString()})`;
+    }
+    statusBoxEl.appendChild(document.createTextNode(modelText));
+    statusBoxEl.appendChild(document.createElement('br'));
+  } else {
+    statusBoxEl.appendChild(document.createTextNode('Model (weekly): --%'));
+    statusBoxEl.appendChild(document.createElement('br'));
   }
-  statusBoxEl.appendChild(document.createTextNode(modelText));
-  statusBoxEl.appendChild(document.createElement('br'));
 
   statusBoxEl.appendChild(document.createTextNode(`Last updated: ${snapshot.lastUpdatedAt}`));
 }

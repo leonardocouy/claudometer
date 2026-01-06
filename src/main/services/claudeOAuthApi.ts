@@ -200,6 +200,7 @@ async function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse>
 
 /**
  * Convert API response to ClaudeUsageSnapshot
+ * Collects all available model usage data (Sonnet, Opus, etc.)
  */
 function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
   // Session (5-hour) usage
@@ -211,20 +212,24 @@ function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
   const weeklyPercent = parseUtilizationPercent(data.seven_day?.utilization);
   const weeklyResetsAt = data.seven_day?.resets_at;
 
-  // Model-specific weekly usage (fallback: Opus → Sonnet → 0)
-  // TODO: Task 2.5 (DEFERRED) - Support multiple models instead of picking one
-  let modelWeeklyPercent = 0;
-  let modelWeeklyName: string | undefined;
-  let modelWeeklyResetsAt: string | undefined;
+  // Model-specific weekly usage - collect ALL available models
+  // Preferred order: Sonnet, Opus
+  const models: Array<{ name: string; percent: number; resetsAt?: string }> = [];
+
+  if (data.seven_day_sonnet) {
+    models.push({
+      name: 'Sonnet',
+      percent: parseUtilizationPercent(data.seven_day_sonnet.utilization),
+      resetsAt: data.seven_day_sonnet.resets_at,
+    });
+  }
 
   if (data.seven_day_opus) {
-    modelWeeklyPercent = parseUtilizationPercent(data.seven_day_opus.utilization);
-    modelWeeklyName = 'Opus';
-    modelWeeklyResetsAt = data.seven_day_opus.resets_at;
-  } else if (data.seven_day_sonnet) {
-    modelWeeklyPercent = parseUtilizationPercent(data.seven_day_sonnet.utilization);
-    modelWeeklyName = 'Sonnet';
-    modelWeeklyResetsAt = data.seven_day_sonnet.resets_at;
+    models.push({
+      name: 'Opus',
+      percent: parseUtilizationPercent(data.seven_day_opus.utilization),
+      resetsAt: data.seven_day_opus.resets_at,
+    });
   }
 
   const snapshot = {
@@ -234,9 +239,7 @@ function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
     sessionResetsAt,
     weeklyPercent,
     weeklyResetsAt,
-    modelWeeklyPercent,
-    modelWeeklyName,
-    modelWeeklyResetsAt,
+    models,
     lastUpdatedAt: nowIso(),
   };
 

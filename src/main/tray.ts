@@ -134,17 +134,25 @@ export class TrayService {
           }`,
           enabled: false,
         },
-        {
-          label: `${snapshot.modelWeeklyName ?? 'Model'} (weekly): ${this.formatPercent(
-            snapshot.modelWeeklyPercent,
-          )} ${
-            snapshot.modelWeeklyResetsAt
-              ? `(resets ${this.formatTime(snapshot.modelWeeklyResetsAt)})`
-              : ''
+      );
+
+      // Add one line per model
+      for (const model of snapshot.models) {
+        items.push({
+          label: `${model.name} (weekly): ${this.formatPercent(model.percent)} ${
+            model.resetsAt ? `(resets ${this.formatTime(model.resetsAt)})` : ''
           }`,
           enabled: false,
-        },
-      );
+        });
+      }
+
+      // If no models available, show placeholder
+      if (snapshot.models.length === 0) {
+        items.push({
+          label: 'Model (weekly): --%',
+          enabled: false,
+        });
+      }
     } else if (snapshot?.errorMessage) {
       items.push({ label: snapshot.errorMessage, enabled: false });
     }
