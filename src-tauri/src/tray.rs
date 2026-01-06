@@ -1,7 +1,7 @@
 use crate::types::{ClaudeUsageSnapshot, UsageStatus};
-use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{image::Image, AppHandle, Manager, Runtime};
+use tauri::{image::Image, AppHandle, Runtime};
 
 pub const TRAY_ID: &str = "main";
 
@@ -10,7 +10,6 @@ pub const ITEM_OPEN_SETTINGS: &str = "open_settings";
 pub const ITEM_CHECK_UPDATES: &str = "check_updates";
 pub const ITEM_QUIT: &str = "quit";
 
-#[derive(Clone)]
 pub struct TrayUi<R: Runtime> {
   header: MenuItem<R>,
   session: MenuItem<R>,
@@ -18,6 +17,19 @@ pub struct TrayUi<R: Runtime> {
   model_weekly: MenuItem<R>,
   error_line: MenuItem<R>,
   last_updated: MenuItem<R>,
+}
+
+impl<R: Runtime> Clone for TrayUi<R> {
+  fn clone(&self) -> Self {
+    Self {
+      header: self.header.clone(),
+      session: self.session.clone(),
+      weekly: self.weekly.clone(),
+      model_weekly: self.model_weekly.clone(),
+      error_line: self.error_line.clone(),
+      last_updated: self.last_updated.clone(),
+    }
+  }
 }
 
 fn format_percent(value: Option<f64>) -> String {
@@ -188,11 +200,4 @@ impl<R: Runtime> TrayUi<R> {
     let _ = self.last_updated.set_text(last_updated);
   }
 
-  pub fn is_action_id(event: &MenuEvent) -> bool {
-    matches!(event.id().as_ref(), ITEM_REFRESH_NOW | ITEM_OPEN_SETTINGS | ITEM_CHECK_UPDATES | ITEM_QUIT)
-  }
-
-  pub fn action_id(event: &MenuEvent) -> &str {
-    event.id().as_ref()
-  }
 }

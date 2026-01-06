@@ -280,8 +280,8 @@ The app stores these settings locally (non-sensitive) via `tauri-plugin-store`:
 - Refresh interval (seconds)
 - Selected organization ID
 - "Remember session key" preference
- - Autostart preference
- - Updater preferences
+- Autostart preference
+- Updater preferences
 
 ## Troubleshooting
 

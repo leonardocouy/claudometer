@@ -25,6 +25,10 @@ dist-electron/
 out/
 .bun-tmp/
 
+# Tauri/Rust
+src-tauri/gen/
+src-tauri/target/
+
 # IDE
 .vscode/
 .idea/

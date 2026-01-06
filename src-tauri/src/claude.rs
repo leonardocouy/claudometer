@@ -31,10 +31,9 @@ fn now_iso() -> String {
 fn build_headers(session_key: &str) -> HeaderMap {
   let mut headers = HeaderMap::new();
   headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-  headers.insert(
-    COOKIE,
-    HeaderValue::from_str(&format!("sessionKey={session_key}")).unwrap_or_default(),
-  );
+  if let Ok(cookie) = HeaderValue::from_str(&format!("sessionKey={session_key}")) {
+    headers.insert(COOKIE, cookie);
+  }
   headers.insert(
     USER_AGENT,
     HeaderValue::from_static(
@@ -108,7 +107,7 @@ fn read_model_weekly_usage(root: &serde_json::Map<String, Value>) -> (f64, Optio
     if !key.starts_with("seven_day_") || key == "seven_day" {
       continue;
     }
-    let Some(Value::Object(period)) = value.as_object() else {
+    let Some(period) = value.as_object() else {
       continue;
     };
     let percent = parse_utilization_percent(period.get("utilization").unwrap_or(&Value::Null));

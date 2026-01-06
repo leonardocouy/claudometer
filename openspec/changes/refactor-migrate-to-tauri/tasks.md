@@ -29,6 +29,15 @@
 - [x] 6.1 Add `tauri-plugin-autostart` and expose commands to enable/disable and query state.
 - [x] 6.2 Add settings UI toggle and (optional) tray shortcut.
 - [ ] 6.3 Validate on macOS and Linux (GNOME + KDE).
+  - Steps:
+    - Build/install the app (`bunx tauri build` or use CI artifacts) so it runs outside `tauri dev`.
+    - Open Settings → toggle “Start on login” to **Yes** → relaunch the app → verify it starts automatically after logout/login (or reboot).
+    - Toggle “Start on login” back to **No** → relaunch the app → verify it no longer starts automatically after logout/login (or reboot).
+    - Verify tray behavior remains tray-first (no main window on startup) and Settings still opens from tray menu.
+  - Validation notes:
+    - macOS: _TBD_ (Launcher: `LaunchAgent`)
+    - Linux (GNOME): _TBD_
+    - Linux (KDE): _TBD_
 
 ## 7. Updater
 - [x] 7.1 Add `tauri-plugin-updater` and integrate a “Check for Updates…” tray action (and/or startup check).
@@ -44,6 +53,17 @@
 - [x] 9.1 Update `README.md` and `ARCHITECTURE.md` to reflect Tauri structure.
 - [x] 9.2 Manual test matrix: macOS (Intel+Apple Silicon) and Linux (GNOME + KDE).
 - [ ] 9.3 Smoke test updater against a draft/test release.
+  - Prereqs:
+    - Generate a keypair (`./scripts/generate-updater-keypair.sh ...`) and commit the **public** key into `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`).
+    - Add GitHub secrets: `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+  - Steps:
+    - Create a draft/test release (or merge a Release Please version bump) and wait for CI to publish bundles.
+    - Confirm the GitHub Release contains platform payloads and matching `.sig` files, plus `latest.json`.
+    - Install an older version, then use tray → “Check for Updates…” and verify the updater finds and installs the new release.
+  - Validation notes:
+    - Release URL tested: _TBD_
+    - Update flow result (macOS): _TBD_
+    - Update flow result (Linux): _TBD_
 
 ## 10. Cleanup (Remove Electron)
 - [x] 10.1 Remove Electron Forge config and scripts (`forge.config.ts`, Electron-related `package.json` scripts/deps).

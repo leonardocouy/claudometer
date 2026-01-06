@@ -55,12 +55,18 @@ pub fn run() {
 
       let app_handle = app.handle().clone();
       let settings = SettingsStore::new(&app_handle)
-        .map_err(|e| tauri::Error::Setup(e.to_string()))?;
+        .map_err(|e| {
+          let err: Box<dyn std::error::Error> = Box::new(e);
+          tauri::Error::Setup(err.into())
+        })?;
 
       let tray = TrayUi::new(&app_handle)?;
 
       let claude = ClaudeApiClient::new()
-        .map_err(|e| tauri::Error::Setup(e.to_string()))?;
+        .map_err(|e| {
+          let err: Box<dyn std::error::Error> = Box::new(e);
+          tauri::Error::Setup(err.into())
+        })?;
 
       let (tx, rx) = mpsc::unbounded_channel();
       let refresh = RefreshBus::new(tx);

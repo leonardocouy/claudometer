@@ -6,7 +6,7 @@ use crate::settings::{
 };
 use crate::tray::TrayUi;
 use crate::types::{
-  ClaudeOrganization, ClaudeUsageSnapshot, IpcResult, SaveSettingsPayload, SettingsState,
+  ClaudeOrganization, ClaudeUsageSnapshot, IpcError, IpcResult, SaveSettingsPayload, SettingsState,
   UsageStatus,
 };
 use crate::updater;
@@ -21,23 +21,38 @@ const SNAPSHOT_EVENT: &str = "snapshot:updated";
 const KEYRING_SERVICE: &str = "com.softaworks.claudometer";
 const KEYRING_USER: &str = "claude_session_key";
 
+type CommandResult<T> = Result<T, IpcError>;
+
 #[derive(Clone)]
 pub struct SessionKeyManager {
-  entry: Option<keyring::Entry>,
   in_memory: Arc<Mutex<Option<String>>>,
 }
 
 impl SessionKeyManager {
   pub fn new() -> Self {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).ok();
     Self {
-      entry,
       in_memory: Arc::new(Mutex::new(None)),
     }
   }
 
+  fn entry(&self) -> Result<keyring::Entry, keyring::Error> {
+    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+  }
+
   pub fn is_available(&self) -> bool {
-    self.entry.is_some()
+    let Ok(entry) = self.entry() else {
+      return false;
+    };
+
+    match entry.get_password() {
+      Ok(_) => true,
+      Err(keyring::Error::NoEntry) => true,
+      Err(keyring::Error::BadEncoding(_)) => true,
+      Err(keyring::Error::Ambiguous(_)) => true,
+      Err(keyring::Error::NoStorageAccess(_)) => false,
+      Err(keyring::Error::PlatformFailure(_)) => false,
+      Err(_) => false,
+    }
   }
 
   pub async fn set_in_memory(&self, value: Option<String>) {
@@ -61,9 +76,7 @@ impl SessionKeyManager {
       return Ok(None);
     }
 
-    let Some(entry) = &self.entry else {
-      return Err(());
-    };
+    let entry = self.entry().map_err(|_| ())?;
 
     match entry.get_password() {
       Ok(pwd) => {
@@ -75,22 +88,23 @@ impl SessionKeyManager {
           Ok(Some(trimmed))
         }
       }
+      Err(keyring::Error::NoEntry) => Ok(None),
+      Err(keyring::Error::NoStorageAccess(_)) => Err(()),
+      Err(keyring::Error::PlatformFailure(_)) => Err(()),
       Err(_) => Ok(None),
     }
   }
 
   pub async fn remember(&self, session_key: &str) -> Result<(), ()> {
-    let Some(entry) = &self.entry else {
-      return Err(());
-    };
+    let entry = self.entry().map_err(|_| ())?;
     entry.set_password(session_key).map_err(|_| ())?;
     Ok(())
   }
 
   pub async fn delete_persisted(&self) -> Result<(), ()> {
-    if let Some(entry) = &self.entry {
-      let _ = entry.delete_password();
-    }
+    if let Ok(entry) = self.entry() {
+      let _ = entry.delete_credential();
+    };
     Ok(())
   }
 
@@ -115,10 +129,6 @@ impl RefreshBus {
     Self { tx }
   }
 
-  pub fn trigger(&self) {
-    let _ = self.tx.send(RefreshRequest { respond_to: None });
-  }
-
   pub async fn refresh_now(&self) -> IpcResult<()> {
     let (tx, rx) = oneshot::channel();
     if self.tx.send(RefreshRequest { respond_to: Some(tx) }).is_err() {
@@ -128,7 +138,6 @@ impl RefreshBus {
   }
 }
 
-#[derive(Clone)]
 pub struct AppState<R: Runtime> {
   pub settings: SettingsStore<R>,
   pub session_key: SessionKeyManager,
@@ -137,6 +146,20 @@ pub struct AppState<R: Runtime> {
   pub latest_snapshot: Arc<Mutex<Option<ClaudeUsageSnapshot>>>,
   pub tray: TrayUi<R>,
   pub refresh: RefreshBus,
+}
+
+impl<R: Runtime> Clone for AppState<R> {
+  fn clone(&self) -> Self {
+    Self {
+      settings: self.settings.clone(),
+      session_key: self.session_key.clone(),
+      claude: self.claude.clone(),
+      organizations: self.organizations.clone(),
+      latest_snapshot: self.latest_snapshot.clone(),
+      tray: self.tray.clone(),
+      refresh: self.refresh.clone(),
+    }
+  }
 }
 
 impl<R: Runtime> AppState<R> {
@@ -348,7 +371,7 @@ pub(crate) fn spawn_refresh_loop<R: Runtime>(
 pub async fn settings_get_state<R: Runtime>(
   app: AppHandle<R>,
   state: State<'_, AppState<R>>,
-) -> SettingsState {
+) -> CommandResult<SettingsState> {
   let organizations = state.organizations.lock().await.clone();
   let latest_snapshot = state.latest_snapshot.lock().await.clone();
 
@@ -357,7 +380,7 @@ pub async fn settings_get_state<R: Runtime>(
     .is_enabled()
     .unwrap_or(state.settings.get_bool(KEY_AUTOSTART_ENABLED, false));
 
-  SettingsState {
+  Ok(SettingsState {
     remember_session_key: state.settings.get_bool(KEY_REMEMBER_SESSION_KEY, false),
     refresh_interval_seconds: state.settings.get_u64(KEY_REFRESH_INTERVAL_SECONDS, 60),
     notify_on_usage_reset: state.settings.get_bool(KEY_NOTIFY_ON_USAGE_RESET, true),
@@ -367,22 +390,22 @@ pub async fn settings_get_state<R: Runtime>(
     selected_organization_id: state.selected_org_id(),
     latest_snapshot,
     keyring_available: state.session_key.is_available(),
-  }
+  })
 }
 
 #[tauri::command]
 pub async fn settings_refresh_now<R: Runtime>(
   _app: AppHandle<R>,
   state: State<'_, AppState<R>>,
-) -> IpcResult<()> {
-  state.refresh.refresh_now().await
+) -> CommandResult<IpcResult<()>> {
+  Ok(state.refresh.refresh_now().await)
 }
 
 #[tauri::command]
 pub async fn settings_forget_key<R: Runtime>(
   app: AppHandle<R>,
   state: State<'_, AppState<R>>,
-) -> IpcResult<()> {
+) -> CommandResult<IpcResult<()>> {
   let _ = state.session_key.forget_all().await;
   state.settings.set(KEY_REMEMBER_SESSION_KEY, false);
   state.settings.remove(KEY_SELECTED_ORGANIZATION_ID);
@@ -391,7 +414,7 @@ pub async fn settings_forget_key<R: Runtime>(
     guard.clear();
   }
   state.update_snapshot(&app, Some(missing_key_snapshot())).await;
-  IpcResult::ok(())
+  Ok(IpcResult::ok(()))
 }
 
 #[tauri::command]
@@ -399,16 +422,19 @@ pub async fn settings_save<R: Runtime>(
   app: AppHandle<R>,
   state: State<'_, AppState<R>>,
   payload: SaveSettingsPayload,
-) -> IpcResult<()> {
+) -> CommandResult<IpcResult<()>> {
   if payload.refresh_interval_seconds < 10 {
-    return IpcResult::err("VALIDATION", "Refresh interval must be >= 10 seconds.");
+    return Ok(IpcResult::err(
+      "VALIDATION",
+      "Refresh interval must be >= 10 seconds.",
+    ));
   }
 
   if payload.remember_session_key && !state.session_key.is_available() {
-    return IpcResult::err(
+    return Ok(IpcResult::err(
       "KEYRING",
       "OS keychain/secret service is unavailable. Disable “Remember session key” to continue.",
-    );
+    ));
   }
 
   // Autostart
@@ -439,7 +465,10 @@ pub async fn settings_save<R: Runtime>(
     match state.claude.fetch_organizations_checked(candidate_key).await {
       Ok(orgs) => {
         if orgs.is_empty() {
-          return IpcResult::err("VALIDATION", "No organizations found for this account.");
+          return Ok(IpcResult::err(
+            "VALIDATION",
+            "No organizations found for this account.",
+          ));
         }
 
         {
@@ -468,10 +497,10 @@ pub async fn settings_save<R: Runtime>(
 
         if payload.remember_session_key {
           if state.session_key.remember(candidate_key).await.is_err() {
-            return IpcResult::err(
+            return Ok(IpcResult::err(
               "KEYRING",
               "Failed to store session key in OS keychain/secret service.",
-            );
+            ));
           }
           state
             .session_key
@@ -489,9 +518,18 @@ pub async fn settings_save<R: Runtime>(
           .settings
           .set(KEY_REMEMBER_SESSION_KEY, payload.remember_session_key);
       }
-      Err(ClaudeWebErrorStatus::Unauthorized) => return IpcResult::err("UNAUTHORIZED", "Unauthorized."),
-      Err(ClaudeWebErrorStatus::RateLimited) => return IpcResult::err("RATE_LIMITED", "Rate limited."),
-      Err(ClaudeWebErrorStatus::Error) => return IpcResult::err("NETWORK", "Failed to validate session key."),
+      Err(ClaudeWebErrorStatus::Unauthorized) => {
+        return Ok(IpcResult::err("UNAUTHORIZED", "Unauthorized."));
+      }
+      Err(ClaudeWebErrorStatus::RateLimited) => {
+        return Ok(IpcResult::err("RATE_LIMITED", "Rate limited."));
+      }
+      Err(ClaudeWebErrorStatus::Error) => {
+        return Ok(IpcResult::err(
+          "NETWORK",
+          "Failed to validate session key.",
+        ));
+      }
     }
   } else {
     if let Some(org_id) = payload
@@ -515,18 +553,18 @@ pub async fn settings_save<R: Runtime>(
   }
 
   let _ = state.refresh.refresh_now().await;
-  IpcResult::ok(())
+  Ok(IpcResult::ok(()))
 }
 
 #[tauri::command]
-pub async fn open_settings<R: Runtime>(app: AppHandle<R>) -> IpcResult<()> {
-  match open_settings_window(&app) {
+pub async fn open_settings<R: Runtime>(app: AppHandle<R>) -> CommandResult<IpcResult<()>> {
+  Ok(match open_settings_window(&app) {
     Ok(()) => IpcResult::ok(()),
     Err(e) => IpcResult::err("UNKNOWN", redact_session_key(&e.to_string()).to_string()),
-  }
+  })
 }
 
 #[tauri::command]
-pub async fn check_for_updates<R: Runtime>(app: AppHandle<R>) -> IpcResult<()> {
-  updater::check_for_updates_now(app).await
+pub async fn check_for_updates<R: Runtime>(app: AppHandle<R>) -> CommandResult<IpcResult<()>> {
+  Ok(updater::check_for_updates_now(app).await)
 }

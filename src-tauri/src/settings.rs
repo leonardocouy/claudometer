@@ -31,9 +31,16 @@ fn defaults() -> HashMap<String, JsonValue> {
   ])
 }
 
-#[derive(Clone)]
 pub struct SettingsStore<R: Runtime> {
   store: Arc<Store<R>>,
+}
+
+impl<R: Runtime> Clone for SettingsStore<R> {
+  fn clone(&self) -> Self {
+    Self {
+      store: self.store.clone(),
+    }
+  }
 }
 
 impl<R: Runtime> SettingsStore<R> {
@@ -78,45 +85,4 @@ impl<R: Runtime> SettingsStore<R> {
   pub fn remove(&self, key: &str) {
     let _ = self.store.delete(key.to_string());
   }
-
-  pub fn get_string_map(&self, key: &str) -> HashMap<String, String> {
-    let Some(value) = self.store.get(key) else {
-      return HashMap::new();
-    };
-    let Some(obj) = value.as_object() else {
-      return HashMap::new();
-    };
-    obj.iter()
-      .filter_map(|(k, v)| {
-        let k = k.trim();
-        let v = v.as_str()?.trim();
-        if k.is_empty() || v.is_empty() {
-          return None;
-        }
-        Some((k.to_string(), v.to_string()))
-      })
-      .collect()
-  }
-
-  pub fn set_string_map_entry(&self, key: &str, map_key: &str, map_value: &str) {
-    let mk = map_key.trim();
-    let mv = map_value.trim();
-    if mk.is_empty() || mv.is_empty() {
-      return;
-    }
-    let mut map = self.get_string_map(key);
-    map.insert(mk.to_string(), mv.to_string());
-    self.set(key, json!(map));
-  }
-
-  pub fn clear_string_map_entry(&self, key: &str, map_key: &str) {
-    let mk = map_key.trim();
-    if mk.is_empty() {
-      return;
-    }
-    let mut map = self.get_string_map(key);
-    map.remove(mk);
-    self.set(key, json!(map));
-  }
 }
-
