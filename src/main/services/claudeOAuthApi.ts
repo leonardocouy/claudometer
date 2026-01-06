@@ -7,11 +7,11 @@ import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { fetchWithTimeout } from '../../common/fetch-with-timeout.ts';
+import { parseUtilizationPercent } from '../../common/parser.ts';
+import { sanitizeError } from '../../common/sanitization.ts';
 import type { ClaudeUsageSnapshot } from '../../common/types.ts';
 import { nowIso } from '../../common/types.ts';
-import { fetchWithTimeout } from '../../common/fetch-with-timeout.ts';
-import { sanitizeError } from '../../common/sanitization.ts';
-import { parseUtilizationPercent } from '../../common/parser.ts';
 
 /**
  * Error thrown when OAuth API requests fail
@@ -87,7 +87,10 @@ const UsageApiResponseSchema = z.object({
 type OAuthCredentials = z.infer<typeof OAuthCredentialsSchema>;
 type UsageApiResponse = z.infer<typeof UsageApiResponseSchema>;
 
-function errorSnapshot(status: 'error' | 'unauthorized' | 'rate_limited', message: string): ClaudeUsageSnapshot {
+function errorSnapshot(
+  status: 'error' | 'unauthorized' | 'rate_limited',
+  message: string,
+): ClaudeUsageSnapshot {
   return {
     status,
     lastUpdatedAt: nowIso(),
@@ -108,7 +111,10 @@ async function readCredentials(): Promise<OAuthCredentials | null> {
     // Validate with Zod schema
     const validationResult = OAuthCredentialsSchema.safeParse(parsed);
     if (!validationResult.success) {
-      console.error('[claudeOAuthApi] Invalid credentials file structure:', validationResult.error.format());
+      console.error(
+        '[claudeOAuthApi] Invalid credentials file structure:',
+        validationResult.error.format(),
+      );
       return null;
     }
 
@@ -139,7 +145,8 @@ export async function validateOAuthCredentials(): Promise<
   if (!credentials.claudeAiOauth?.accessToken) {
     return {
       valid: false,
-      error: 'No OAuth credentials found. Please authenticate with Claude Code CLI first:\n  claude',
+      error:
+        'No OAuth credentials found. Please authenticate with Claude Code CLI first:\n  claude',
     };
   }
 
@@ -172,11 +179,11 @@ async function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse>
     const validationResult = UsageApiResponseSchema.safeParse(jsonData);
 
     if (!validationResult.success) {
-      console.error('[claudeOAuthApi] Invalid API response structure:', validationResult.error.format());
-      throw new ClaudeOAuthRequestError(
-        'Invalid API response structure',
-        'error',
+      console.error(
+        '[claudeOAuthApi] Invalid API response structure:',
+        validationResult.error.format(),
       );
+      throw new ClaudeOAuthRequestError('Invalid API response structure', 'error');
     }
 
     return validationResult.data;
@@ -187,10 +194,7 @@ async function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse>
     }
     // Network errors, timeout errors, etc. are transient -> status: 'error'
     console.error('[claudeOAuthApi] Network error:', sanitizeError(error));
-    throw new ClaudeOAuthRequestError(
-      'Network error during OAuth API request',
-      'error',
-    );
+    throw new ClaudeOAuthRequestError('Network error during OAuth API request', 'error');
   }
 }
 

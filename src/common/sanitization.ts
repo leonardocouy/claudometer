@@ -23,7 +23,10 @@ export function sanitizeString(input: string): string {
   sanitized = sanitized.replaceAll(/sk-ant-api03-[A-Za-z0-9_-]+/g, 'sk-ant-api03-REDACTED');
 
   // Redact Authorization Bearer tokens
-  sanitized = sanitized.replaceAll(/Authorization:\s*Bearer\s+[A-Za-z0-9._-]+/gi, 'Authorization: Bearer REDACTED');
+  sanitized = sanitized.replaceAll(
+    /Authorization:\s*Bearer\s+[A-Za-z0-9._-]+/gi,
+    'Authorization: Bearer REDACTED',
+  );
 
   return sanitized;
 }

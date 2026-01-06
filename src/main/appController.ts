@@ -1,13 +1,13 @@
 import type { IpcResult, SaveSettingsPayload, SettingsState } from '../common/ipc.ts';
+import { sanitizeString } from '../common/sanitization.ts';
 import { type ClaudeOrganization, type ClaudeUsageSnapshot, nowIso } from '../common/types.ts';
 import { type ClaudeApiService, getClaudeWebRequestErrorStatus } from './services/claudeApi.ts';
 import type { ClaudeCliService } from './services/claudeCli.ts';
+import { validateOAuthCredentials } from './services/claudeOAuthApi.ts';
 import type { SessionKeyService } from './services/sessionKey.ts';
 import type { SettingsService } from './services/settings.ts';
 import type { UsageNotificationService } from './services/usageNotification.ts';
 import type { TrayService } from './tray.ts';
-import { sanitizeString } from '../common/sanitization.ts';
-import { validateOAuthCredentials } from './services/claudeOAuthApi.ts';
 
 // Use centralized sanitization utility
 function sanitizeMessage(message: string): string {

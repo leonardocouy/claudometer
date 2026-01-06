@@ -28,7 +28,10 @@ function renderOrgs(
   orgSelectEl.value = selectedId || '';
 }
 
-function renderSnapshotToElement(statusBoxEl: HTMLElement, snapshot: ClaudeUsageSnapshot | null): void {
+function renderSnapshotToElement(
+  statusBoxEl: HTMLElement,
+  snapshot: ClaudeUsageSnapshot | null,
+): void {
   // Clear previous content
   statusBoxEl.textContent = '';
 
@@ -72,10 +75,14 @@ function renderSnapshotToElement(statusBoxEl: HTMLElement, snapshot: ClaudeUsage
   statusBoxEl.appendChild(document.createTextNode('ok'));
   statusBoxEl.appendChild(document.createElement('br'));
 
-  statusBoxEl.appendChild(document.createTextNode(`Session: ${Math.round(snapshot.sessionPercent)}%`));
+  statusBoxEl.appendChild(
+    document.createTextNode(`Session: ${Math.round(snapshot.sessionPercent)}%`),
+  );
   statusBoxEl.appendChild(document.createElement('br'));
 
-  statusBoxEl.appendChild(document.createTextNode(`Weekly: ${Math.round(snapshot.weeklyPercent)}%`));
+  statusBoxEl.appendChild(
+    document.createTextNode(`Weekly: ${Math.round(snapshot.weeklyPercent)}%`),
+  );
   statusBoxEl.appendChild(document.createElement('br'));
 
   const modelName = snapshot.modelWeeklyName || 'Model';
