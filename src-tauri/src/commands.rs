@@ -19,12 +19,14 @@ use crate::windows::open_settings_window;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, EventTarget, Runtime, State};
 use tauri_plugin_autostart::ManagerExt as _;
 use tauri_plugin_notification::NotificationExt as _;
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 const SNAPSHOT_EVENT: &str = "snapshot:updated";
+const ORGS_CACHE_TTL: Duration = Duration::from_secs(300); // 5 minutes
 
 const KEYRING_SERVICE: &str = "com.softaworks.claudometer";
 const KEYRING_USER: &str = "claude_session_key";
@@ -151,6 +153,7 @@ pub struct AppState<R: Runtime> {
   pub session_key: SessionKeyManager,
   pub claude: Arc<ClaudeApiClient>,
   pub organizations: Arc<Mutex<Vec<ClaudeOrganization>>>,
+  pub orgs_cache: Arc<Mutex<Option<(Vec<ClaudeOrganization>, Instant)>>>,
   pub latest_snapshot: Arc<Mutex<Option<ClaudeUsageSnapshot>>>,
   pub reset_baseline_by_org: Arc<Mutex<HashMap<String, UsageResetBaseline>>>,
   pub debug_override: Arc<Mutex<DebugOverride>>,
@@ -165,12 +168,46 @@ impl<R: Runtime> Clone for AppState<R> {
       session_key: self.session_key.clone(),
       claude: self.claude.clone(),
       organizations: self.organizations.clone(),
+      orgs_cache: self.orgs_cache.clone(),
       latest_snapshot: self.latest_snapshot.clone(),
       reset_baseline_by_org: self.reset_baseline_by_org.clone(),
       debug_override: self.debug_override.clone(),
       tray: self.tray.clone(),
       refresh: self.refresh.clone(),
     }
+  }
+}
+
+impl<R: Runtime> AppState<R> {
+  pub async fn get_organizations_cached(
+    &self,
+    session_key: &str,
+  ) -> Result<Vec<ClaudeOrganization>, ClaudeWebErrorStatus> {
+    // Check cache first
+    {
+      let cache = self.orgs_cache.lock().await;
+      if let Some((orgs, fetched_at)) = cache.as_ref() {
+        if fetched_at.elapsed() < ORGS_CACHE_TTL {
+          return Ok(orgs.clone());
+        }
+      }
+    }
+
+    // Fetch fresh organizations
+    let orgs = self.claude.fetch_organizations_checked(session_key).await?;
+
+    // Update cache
+    {
+      let mut cache = self.orgs_cache.lock().await;
+      *cache = Some((orgs.clone(), Instant::now()));
+    }
+
+    Ok(orgs)
+  }
+
+  pub async fn invalidate_orgs_cache(&self) {
+    let mut cache = self.orgs_cache.lock().await;
+    *cache = None;
   }
 }
 
@@ -459,7 +496,7 @@ async fn resolve_organization_id<R: Runtime>(
   state: &AppState<R>,
   session_key: &str,
 ) -> Result<Option<String>, ClaudeWebErrorStatus> {
-  let orgs = state.claude.fetch_organizations_checked(session_key).await?;
+  let orgs = state.get_organizations_cached(session_key).await?;
 
   {
     let mut guard = state.organizations.lock().await;
@@ -761,6 +798,7 @@ pub async fn settings_save<R: Runtime>(
       let mut guard = state.organizations.lock().await;
       guard.clear();
     }
+    state.invalidate_orgs_cache().await;
 
     if payload.check_updates_on_startup {
       updater::check_for_updates_background(app.clone());
@@ -790,6 +828,7 @@ pub async fn settings_save<R: Runtime>(
           let mut guard = state.organizations.lock().await;
           *guard = orgs.clone();
         }
+        state.invalidate_orgs_cache().await;
 
         let desired = payload
           .selected_organization_id

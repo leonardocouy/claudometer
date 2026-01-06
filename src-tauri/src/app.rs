@@ -126,6 +126,7 @@ pub fn run() {
         session_key: SessionKeyManager::new(),
         claude: std::sync::Arc::new(claude),
         organizations: std::sync::Arc::new(tokio::sync::Mutex::new(vec![])),
+        orgs_cache: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
         latest_snapshot: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
         reset_baseline_by_org: std::sync::Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         debug_override: std::sync::Arc::new(tokio::sync::Mutex::new(

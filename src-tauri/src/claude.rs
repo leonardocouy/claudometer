@@ -200,7 +200,10 @@ pub struct ClaudeApiClient {
 impl ClaudeApiClient {
   pub fn new() -> Result<Self, ClaudeError> {
     Ok(Self {
-      http: reqwest::Client::builder().build()?,
+      http: reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(40))
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()?,
     })
   }
 

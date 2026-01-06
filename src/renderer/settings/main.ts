@@ -171,6 +171,15 @@ function renderApp(root: HTMLElement): void {
       <div class="hint">Never paste this anywhere else. It is stored only if "Remember" is enabled.</div>
     </div>
 
+    <div class="row">
+      <label for="rememberKey">Remember session key</label>
+      <select id="rememberKey">
+        <option value="true">Yes (stored in OS keychain)</option>
+        <option value="false">No (memory only, lost on quit)</option>
+      </select>
+      <div class="hint" id="storageHint"></div>
+    </div>
+
     <div class="row inline">
       <div>
         <label for="refreshInterval">Refresh interval (seconds)</label>
