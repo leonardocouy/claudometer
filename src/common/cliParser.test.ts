@@ -62,9 +62,10 @@ describe('parseCliUsageOutput', () => {
     expect(result.data.sessionResetsAt).toBe('11:59am (America/Sao_Paulo)');
     expect(result.data.weeklyPercent).toBe(32);
     expect(result.data.weeklyResetsAt).toBe('Jan 9, 12:59pm (America/Sao_Paulo)');
-    expect(result.data.modelWeeklyPercent).toBe(23);
-    expect(result.data.modelWeeklyName).toBe('Sonnet');
-    expect(result.data.modelWeeklyResetsAt).toBe('Jan 9, 12:59pm (America/Sao_Paulo)');
+    expect(result.data.models).toHaveLength(1);
+    expect(result.data.models[0].name).toBe('Sonnet');
+    expect(result.data.models[0].percent).toBe(23);
+    expect(result.data.models[0].resetsAt).toBe('Jan 9, 12:59pm (America/Sao_Paulo)');
   });
 
   test('parses output without model-specific weekly', () => {
@@ -83,8 +84,7 @@ describe('parseCliUsageOutput', () => {
 
     expect(result.data.sessionPercent).toBe(50);
     expect(result.data.weeklyPercent).toBe(75);
-    expect(result.data.modelWeeklyPercent).toBeUndefined();
-    expect(result.data.modelWeeklyName).toBeUndefined();
+    expect(result.data.models).toHaveLength(0);
   });
 
   test('handles OAuth/permission error', () => {
@@ -191,9 +191,13 @@ describe('cliUsageToSnapshot', () => {
       sessionResetsAt: '11:59am (America/Sao_Paulo)',
       weeklyPercent: 32,
       weeklyResetsAt: 'Jan 9, 12:59pm (America/Sao_Paulo)',
-      modelWeeklyPercent: 23,
-      modelWeeklyName: 'Sonnet' as const,
-      modelWeeklyResetsAt: 'Jan 9, 12:59pm (America/Sao_Paulo)',
+      models: [
+        {
+          name: 'Sonnet',
+          percent: 23,
+          resetsAt: 'Jan 9, 12:59pm (America/Sao_Paulo)',
+        },
+      ],
     };
 
     const snapshot = cliUsageToSnapshot(parsed);
@@ -206,9 +210,10 @@ describe('cliUsageToSnapshot', () => {
     expect(snapshot.sessionResetsAt).toBe('11:59am (America/Sao_Paulo)');
     expect(snapshot.weeklyPercent).toBe(32);
     expect(snapshot.weeklyResetsAt).toBe('Jan 9, 12:59pm (America/Sao_Paulo)');
-    expect(snapshot.modelWeeklyPercent).toBe(23);
-    expect(snapshot.modelWeeklyName).toBe('Sonnet');
-    expect(snapshot.modelWeeklyResetsAt).toBe('Jan 9, 12:59pm (America/Sao_Paulo)');
+    expect(snapshot.models).toHaveLength(1);
+    expect(snapshot.models[0].name).toBe('Sonnet');
+    expect(snapshot.models[0].percent).toBe(23);
+    expect(snapshot.models[0].resetsAt).toBe('Jan 9, 12:59pm (America/Sao_Paulo)');
     expect(snapshot.lastUpdatedAt).toBeDefined();
   });
 
@@ -216,6 +221,7 @@ describe('cliUsageToSnapshot', () => {
     const parsed = {
       sessionPercent: 50,
       weeklyPercent: 75,
+      models: [],
     };
 
     const snapshot = cliUsageToSnapshot(parsed);
@@ -225,8 +231,7 @@ describe('cliUsageToSnapshot', () => {
 
     expect(snapshot.sessionPercent).toBe(50);
     expect(snapshot.weeklyPercent).toBe(75);
-    expect(snapshot.modelWeeklyPercent).toBe(0);
-    expect(snapshot.modelWeeklyName).toBeUndefined();
+    expect(snapshot.models).toHaveLength(0);
   });
 });
 

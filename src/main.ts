@@ -36,7 +36,7 @@ async function initialize(): Promise<void> {
   const settingsService = new SettingsService();
   const sessionKeyService = new SessionKeyService(settingsService);
   const claudeApiService = new ClaudeApiService();
-  const claudeCliService = new ClaudeCliService(settingsService.getClaudeCliPath());
+  const claudeCliService = new ClaudeCliService();
   const usageNotificationService = new UsageNotificationService(settingsService);
 
   tray = new TrayService({

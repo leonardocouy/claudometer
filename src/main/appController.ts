@@ -1,16 +1,17 @@
 import type { IpcResult, SaveSettingsPayload, SettingsState } from '../common/ipc.ts';
+import { sanitizeString } from '../common/sanitization.ts';
 import { type ClaudeOrganization, type ClaudeUsageSnapshot, nowIso } from '../common/types.ts';
 import { type ClaudeApiService, getClaudeWebRequestErrorStatus } from './services/claudeApi.ts';
 import type { ClaudeCliService } from './services/claudeCli.ts';
+import { validateOAuthCredentials } from './services/claudeOAuthApi.ts';
 import type { SessionKeyService } from './services/sessionKey.ts';
 import type { SettingsService } from './services/settings.ts';
 import type { UsageNotificationService } from './services/usageNotification.ts';
 import type { TrayService } from './tray.ts';
 
+// Use centralized sanitization utility
 function sanitizeMessage(message: string): string {
-  let sanitized = message.replaceAll(/sessionKey=[^;\s]+/gi, 'sessionKey=REDACTED');
-  sanitized = sanitized.replaceAll(/sk-ant-sid01-[A-Za-z0-9_-]+/g, 'sk-ant-sid01-REDACTED');
-  return sanitized;
+  return sanitizeString(message);
 }
 
 function withJitter(baseMs: number, jitterFraction = 0.2): number {
@@ -94,14 +95,27 @@ export class AppController {
       };
     }
 
-    // Validate CLI path if in CLI mode
+    // Validate based on usage source
     const usageSource = parsed.usageSource || 'web';
     const claudeCliPath = parsed.claudeCliPath?.trim() || 'claude';
-    if (usageSource === 'cli' && !claudeCliPath) {
-      return {
-        ok: false,
-        error: { code: 'VALIDATION', message: 'Claude CLI path cannot be empty.' },
-      };
+
+    // Validate CLI mode: check OAuth credentials
+    if (usageSource === 'cli') {
+      if (!claudeCliPath) {
+        return {
+          ok: false,
+          error: { code: 'VALIDATION', message: 'Claude CLI path cannot be empty.' },
+        };
+      }
+
+      // Validate OAuth credentials exist and are valid
+      const credentialsCheck = await validateOAuthCredentials();
+      if (!credentialsCheck.valid) {
+        return {
+          ok: false,
+          error: { code: 'VALIDATION', message: credentialsCheck.error },
+        };
+      }
     }
 
     const candidateSessionKey = parsed.sessionKey?.trim();
@@ -155,7 +169,6 @@ export class AppController {
     this.settingsService.setNotifyOnUsageReset(Boolean(parsed.notifyOnUsageReset));
     this.settingsService.setUsageSource(usageSource);
     this.settingsService.setClaudeCliPath(claudeCliPath);
-    this.claudeCliService.setCliPath(claudeCliPath);
 
     await this.refreshNow();
     return { ok: true, value: null };

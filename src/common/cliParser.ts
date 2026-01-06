@@ -20,9 +20,7 @@ export type ParsedCliUsage = {
   sessionResetsAt?: string;
   weeklyPercent: number;
   weeklyResetsAt?: string;
-  modelWeeklyPercent?: number;
-  modelWeeklyName?: string;
-  modelWeeklyResetsAt?: string;
+  models: Array<{ name: string; percent: number; resetsAt?: string }>;
 };
 
 export type CliParseResult =
@@ -82,8 +80,26 @@ export function parseCliUsageOutput(rawOutput: string): CliParseResult {
     };
   }
 
-  // Parse model-specific weekly usage (optional)
-  const modelWeeklyMatch = parseUsageBlock(text, 'Current week (Sonnet only)');
+  // Parse model-specific weekly usage (collect all available models)
+  const models: Array<{ name: string; percent: number; resetsAt?: string }> = [];
+
+  // Check for common model patterns
+  const modelPatterns = [
+    { pattern: 'Current week (Sonnet only)', name: 'Sonnet' },
+    { pattern: 'Current week (Opus only)', name: 'Opus' },
+    { pattern: 'Current week (Haiku only)', name: 'Haiku' },
+  ];
+
+  for (const { pattern, name } of modelPatterns) {
+    const modelMatch = parseUsageBlock(text, pattern);
+    if (modelMatch) {
+      models.push({
+        name,
+        percent: modelMatch.percent,
+        resetsAt: modelMatch.resetsAt,
+      });
+    }
+  }
 
   return {
     ok: true,
@@ -92,9 +108,7 @@ export function parseCliUsageOutput(rawOutput: string): CliParseResult {
       sessionResetsAt: sessionMatch.resetsAt,
       weeklyPercent: weeklyMatch.percent,
       weeklyResetsAt: weeklyMatch.resetsAt,
-      modelWeeklyPercent: modelWeeklyMatch?.percent,
-      modelWeeklyName: modelWeeklyMatch ? 'Sonnet' : undefined,
-      modelWeeklyResetsAt: modelWeeklyMatch?.resetsAt,
+      models,
     },
   };
 }
@@ -137,9 +151,7 @@ export function cliUsageToSnapshot(parsed: ParsedCliUsage): ClaudeUsageSnapshot 
     sessionResetsAt: parsed.sessionResetsAt,
     weeklyPercent: parsed.weeklyPercent,
     weeklyResetsAt: parsed.weeklyResetsAt,
-    modelWeeklyPercent: parsed.modelWeeklyPercent ?? 0,
-    modelWeeklyName: parsed.modelWeeklyName,
-    modelWeeklyResetsAt: parsed.modelWeeklyResetsAt,
+    models: parsed.models,
     lastUpdatedAt: nowIso(),
   };
 }

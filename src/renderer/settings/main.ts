@@ -28,35 +28,105 @@ function renderOrgs(
   orgSelectEl.value = selectedId || '';
 }
 
-function renderSnapshot(snapshot: ClaudeUsageSnapshot | null): string {
-  if (!snapshot) return '<strong>Status:</strong> no data';
-  if (snapshot.status !== 'ok') {
-    const msg = snapshot.errorMessage ? `<div class="error">${snapshot.errorMessage}</div>` : '';
-    return `<strong>Status:</strong> ${snapshot.status}${msg}<div>Last updated: ${snapshot.lastUpdatedAt}</div>`;
-  }
-  return `
-    <strong>Status:</strong> ok<br/>
-    Session: ${Math.round(snapshot.sessionPercent)}%<br/>
-    Weekly: ${Math.round(snapshot.weeklyPercent)}%<br/>
-    ${snapshot.modelWeeklyName || 'Model'} (weekly): ${Math.round(snapshot.modelWeeklyPercent)}%${
-      snapshot.modelWeeklyResetsAt
-        ? ` (resets ${new Date(snapshot.modelWeeklyResetsAt).toLocaleString()})`
-        : ''
-    }<br/>
-    Last updated: ${snapshot.lastUpdatedAt}
-  `;
-}
+function renderSnapshotToElement(
+  statusBoxEl: HTMLElement,
+  snapshot: ClaudeUsageSnapshot | null,
+): void {
+  // Clear previous content
+  statusBoxEl.textContent = '';
 
-function setStatus(statusBoxEl: HTMLElement, html: string): void {
-  statusBoxEl.innerHTML = html;
+  // Create status label
+  const statusLabel = document.createElement('strong');
+  statusLabel.textContent = 'Status: ';
+  statusBoxEl.appendChild(statusLabel);
+
+  if (!snapshot) {
+    statusBoxEl.appendChild(document.createTextNode('no data'));
+    return;
+  }
+
+  if (snapshot.status !== 'ok') {
+    // Status value
+    const statusSpan = document.createElement('span');
+    if (snapshot.status === 'error' || snapshot.status === 'unauthorized') {
+      statusSpan.className = 'error';
+    }
+    statusSpan.textContent = snapshot.status;
+    statusBoxEl.appendChild(statusSpan);
+
+    // Error message if present
+    if (snapshot.errorMessage) {
+      statusBoxEl.appendChild(document.createElement('br'));
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'error';
+      errorDiv.textContent = snapshot.errorMessage; // textContent prevents XSS
+      statusBoxEl.appendChild(errorDiv);
+    }
+
+    // Last updated
+    statusBoxEl.appendChild(document.createElement('br'));
+    const lastUpdated = document.createElement('div');
+    lastUpdated.textContent = `Last updated: ${snapshot.lastUpdatedAt}`;
+    statusBoxEl.appendChild(lastUpdated);
+    return;
+  }
+
+  // OK status - render usage data
+  statusBoxEl.appendChild(document.createTextNode('ok'));
+  statusBoxEl.appendChild(document.createElement('br'));
+
+  statusBoxEl.appendChild(
+    document.createTextNode(`Session: ${Math.round(snapshot.sessionPercent)}%`),
+  );
+  statusBoxEl.appendChild(document.createElement('br'));
+
+  statusBoxEl.appendChild(
+    document.createTextNode(`Weekly: ${Math.round(snapshot.weeklyPercent)}%`),
+  );
+  statusBoxEl.appendChild(document.createElement('br'));
+
+  // Display first model from array (settings UI shows single model for simplicity)
+  const firstModel = snapshot.models[0];
+  if (firstModel) {
+    const modelName = firstModel.name;
+    const modelPercent = Math.round(firstModel.percent);
+    let modelText = `${modelName} (weekly): ${modelPercent}%`;
+    if (firstModel.resetsAt) {
+      modelText += ` (resets ${new Date(firstModel.resetsAt).toLocaleString()})`;
+    }
+    statusBoxEl.appendChild(document.createTextNode(modelText));
+    statusBoxEl.appendChild(document.createElement('br'));
+  } else {
+    statusBoxEl.appendChild(document.createTextNode('Model (weekly): --%'));
+    statusBoxEl.appendChild(document.createElement('br'));
+  }
+
+  statusBoxEl.appendChild(document.createTextNode(`Last updated: ${snapshot.lastUpdatedAt}`));
 }
 
 function setResultError(statusBoxEl: HTMLElement, result: IpcResult<unknown>): void {
   if (result.ok) return;
-  setStatus(
-    statusBoxEl,
-    `<strong>Status:</strong> <span class="error">error</span><div class="error">${result.error.message}</div>`,
-  );
+
+  // Clear previous content
+  statusBoxEl.textContent = '';
+
+  // Status label
+  const statusLabel = document.createElement('strong');
+  statusLabel.textContent = 'Status: ';
+  statusBoxEl.appendChild(statusLabel);
+
+  // Error status
+  const errorSpan = document.createElement('span');
+  errorSpan.className = 'error';
+  errorSpan.textContent = 'error';
+  statusBoxEl.appendChild(errorSpan);
+
+  // Error message
+  statusBoxEl.appendChild(document.createElement('br'));
+  const errorDiv = document.createElement('div');
+  errorDiv.className = 'error';
+  errorDiv.textContent = result.error.message; // textContent prevents XSS
+  statusBoxEl.appendChild(errorDiv);
 }
 
 type Elements = {
@@ -90,7 +160,7 @@ async function loadState(elements: Elements): Promise<SettingsState> {
   elements.storageHintEl.textContent = state.encryptionAvailable
     ? ''
     : 'Encrypted storage is unavailable on this system. "Remember" will be memory-only (no persistence across restarts).';
-  setStatus(elements.statusBoxEl, renderSnapshot(state.latestSnapshot));
+  renderSnapshotToElement(elements.statusBoxEl, state.latestSnapshot);
   elements.sessionKeyEl.value = '';
   updateSourceVisibility(state.usageSource, elements);
   return state;
@@ -242,7 +312,7 @@ function renderApp(root: HTMLElement): void {
   void loadState(elements);
 
   window.api.settings.onSnapshotUpdated((snapshot) => {
-    setStatus(elements.statusBoxEl, renderSnapshot(snapshot));
+    renderSnapshotToElement(elements.statusBoxEl, snapshot);
   });
 }
 
