@@ -167,6 +167,13 @@ The Claude `sessionKey` is stored only using OS credential storage (`keyring` cr
 
 If OS credential storage is unavailable, “Remember session key” is disabled (no file fallback).
 
+## Date/Time Handling
+
+Tray menu timestamps are handled as RFC3339 strings and formatted in `src-tauri/src/tray.rs`:
+- Converted to the system local time zone via `chrono::Local` (uses OS TZ/DST rules).
+- Formatted with `chrono` `unstable-locales` using a `Locale` derived from `LC_TIME` → `LC_ALL` → `LANG`.
+- If parsing fails, the raw input string is displayed as a fallback.
+
 ## API Integration
 
 Claudometer can use either Claude’s **web** endpoints (the same interface the website uses) or the Claude Code CLI OAuth usage endpoint.
