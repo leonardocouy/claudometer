@@ -22,7 +22,7 @@ jobs:
         include:
           - os: macos-latest
             target: darwin-aarch64
-          - os: macos-13
+          - os: macos-15-intel
             target: darwin-x86_64
           - os: ubuntu-latest
             target: linux-x86_64
