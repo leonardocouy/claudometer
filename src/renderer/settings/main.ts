@@ -63,7 +63,6 @@ type Elements = {
   usageSourceEl: HTMLSelectElement;
   sessionKeyEl: HTMLInputElement;
   rememberKeyEl: HTMLSelectElement;
-  claudeCliPathEl: HTMLInputElement;
   refreshIntervalEl: HTMLInputElement;
   notifyResetEl: HTMLSelectElement;
   orgSelectEl: HTMLSelectElement;
@@ -87,7 +86,6 @@ async function loadState(elements: Elements): Promise<SettingsState> {
   elements.rememberKeyEl.value = String(Boolean(state.rememberSessionKey));
   elements.refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
   elements.notifyResetEl.value = String(state.notifyOnUsageReset ?? true);
-  elements.claudeCliPathEl.value = state.claudeCliPath || 'claude';
   renderOrgs(elements.orgSelectEl, state.organizations || [], state.selectedOrganizationId);
   elements.storageHintEl.textContent = state.encryptionAvailable
     ? ''
@@ -106,7 +104,7 @@ function renderApp(root: HTMLElement): void {
       <label for="usageSource">Usage data source</label>
       <select id="usageSource">
         <option value="web">Claude Web (session key)</option>
-        <option value="cli">Claude Code CLI (claude /usage)</option>
+        <option value="cli">Claude Code CLI</option>
       </select>
       <div class="hint">Choose how to fetch usage data</div>
     </div>
@@ -137,9 +135,7 @@ function renderApp(root: HTMLElement): void {
 
     <div id="cliOnlySection" style="display: none;">
       <div class="row">
-        <label for="claudeCliPath">Claude CLI path</label>
-        <input id="claudeCliPath" type="text" placeholder="claude" autocomplete="off" />
-        <div class="hint">Path to the Claude Code CLI binary (default: claude)</div>
+        <div class="hint">Uses OAuth credentials from ~/.claude/.credentials.json automatically.<br/>Make sure you've authenticated with Claude Code CLI first.</div>
       </div>
     </div>
 
@@ -181,7 +177,6 @@ function renderApp(root: HTMLElement): void {
     usageSourceEl: el<HTMLSelectElement>(root, '#usageSource'),
     sessionKeyEl: el<HTMLInputElement>(root, '#sessionKey'),
     rememberKeyEl: el<HTMLSelectElement>(root, '#rememberKey'),
-    claudeCliPathEl: el<HTMLInputElement>(root, '#claudeCliPath'),
     refreshIntervalEl: el<HTMLInputElement>(root, '#refreshInterval'),
     notifyResetEl: el<HTMLSelectElement>(root, '#notifyReset'),
     orgSelectEl: el<HTMLSelectElement>(root, '#orgSelect'),
@@ -221,7 +216,7 @@ function renderApp(root: HTMLElement): void {
       notifyOnUsageReset: elements.notifyResetEl.value === 'true',
       selectedOrganizationId: elements.orgSelectEl.value || undefined,
       usageSource,
-      claudeCliPath: elements.claudeCliPathEl.value || 'claude',
+      claudeCliPath: 'claude', // Fixed value, not user-configurable
     };
     const result = await window.api.settings.save(payload);
     setResultError(elements.statusBoxEl, result);
