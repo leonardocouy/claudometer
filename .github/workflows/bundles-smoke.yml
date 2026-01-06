@@ -70,7 +70,6 @@ jobs:
           set -euo pipefail
           bunx tauri signer generate --ci --write-keys "$RUNNER_TEMP/tauri-updater.key"
           echo "TAURI_SIGNING_PRIVATE_KEY=$RUNNER_TEMP/tauri-updater.key" >> "$GITHUB_ENV"
-          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=" >> "$GITHUB_ENV"
 
       - name: Build bundles
         run: |

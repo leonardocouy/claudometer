@@ -95,6 +95,11 @@ jobs:
       - name: Build bundles
         run: |
           bun run sync-versions
+          if [[ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
+            export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          else
+            unset TAURI_SIGNING_PRIVATE_KEY_PASSWORD || true
+          fi
           bunx tauri build --ci
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
