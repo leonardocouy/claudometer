@@ -57,7 +57,7 @@ Claudometer supports two authentication modes that share the same `ClaudeUsageSn
 - Uses Claude.ai web session cookie (`sessionKey`)
 - Fetches from `https://claude.ai/api/*` endpoints
 - Supports multiple organizations
-- Session key stored encrypted via `safeStorage`
+- Session key is stored only in OS credential storage via Rust `keyring` (optional)
 
 **Authentication Flow:**
 1. User extracts `sessionKey` from browser cookies
@@ -103,7 +103,7 @@ Claudometer supports two authentication modes that share the same `ClaudeUsageSn
 | **Token Management** | Manual refresh needed | Auto-refresh by CLI |
 | **API Endpoint** | `claude.ai/api/*` | `api.anthropic.com/api/oauth/*` |
 | **Organizations** | Multi-org support | Single account |
-| **Persistence** | App manages encryption | CLI manages file |
+| **Persistence** | OS credential storage (`keyring`) or memory-only | CLI manages file |
 | **Credential Format** | Session cookie string | OAuth access/refresh tokens |
 
 ### Routing Logic

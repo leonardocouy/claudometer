@@ -153,7 +153,6 @@ claudometer/
 │   ├── renderer/settings/         # Vite settings UI (Tauri invoke + events)
 │   └── common/                    # Shared types for the settings UI
 ├── assets/                        # Tray icons
-├── openspec/                      # Change proposals & specs
 ├── package.json
 ├── tsconfig.json
 └── CLAUDE.md                      # AI assistant instructions
