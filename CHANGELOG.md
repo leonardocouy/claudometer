@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/leonardocouy/claudometer/compare/v1.3.0...v1.3.1) (2026-01-06)
+
+
+### Bug Fixes
+
+* **ci:** update macOS runner from deprecated macos-13 to macos-15-intel ([#11](https://github.com/leonardocouy/claudometer/issues/11)) ([3d19140](https://github.com/leonardocouy/claudometer/commit/3d191406d0b74751ab9627cc61baad8ba7b75b85))
+
 ## [1.3.0](https://github.com/leonardocouy/claudometer/compare/v1.2.1...v1.3.0) (2026-01-05)
 
 
