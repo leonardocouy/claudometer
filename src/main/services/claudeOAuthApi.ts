@@ -65,7 +65,6 @@ async function readCredentials(): Promise<OAuthCredentials | null> {
  */
 async function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse | null> {
   try {
-    console.log('[claudeOAuthApi] Fetching usage from API...');
     const response = await fetch('https://api.anthropic.com/api/oauth/usage', {
       method: 'GET',
       headers: {
@@ -73,8 +72,6 @@ async function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse 
         'anthropic-beta': 'oauth-2025-04-20',
       },
     });
-
-    console.log('[claudeOAuthApi] Response status:', response.status);
 
     if (!response.ok) {
       if (response.status === 401) {
@@ -86,7 +83,6 @@ async function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse 
     }
 
     const data = (await response.json()) as UsageApiResponse;
-    console.log('[claudeOAuthApi] API Response:', JSON.stringify(data, null, 2));
     return data;
   } catch (error) {
     console.error('[claudeOAuthApi] Network error:', error);
@@ -98,23 +94,13 @@ async function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse 
  * Convert API response to ClaudeUsageSnapshot
  */
 function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
-  console.log('[claudeOAuthApi] Converting API response to snapshot...');
-
   // Session (5-hour) usage - API returns utilization as percentage directly
   const sessionPercent = Math.round(data.five_hour?.utilization ?? 0);
   const sessionResetsAt = data.five_hour?.resets_at;
-  console.log('[claudeOAuthApi] Session:', {
-    utilization: data.five_hour?.utilization,
-    percent: sessionPercent
-  });
 
   // Weekly (7-day) usage - API returns utilization as percentage directly
   const weeklyPercent = Math.round(data.seven_day?.utilization ?? 0);
   const weeklyResetsAt = data.seven_day?.resets_at;
-  console.log('[claudeOAuthApi] Weekly:', {
-    utilization: data.seven_day?.utilization,
-    percent: weeklyPercent
-  });
 
   // Model-specific weekly usage (fallback: Opus → Sonnet → 0)
   let modelWeeklyPercent = 0;
@@ -125,18 +111,10 @@ function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
     modelWeeklyPercent = Math.round(data.seven_day_opus.utilization ?? 0);
     modelWeeklyName = 'Opus';
     modelWeeklyResetsAt = data.seven_day_opus.resets_at;
-    console.log('[claudeOAuthApi] Model (Opus):', {
-      utilization: data.seven_day_opus.utilization,
-      percent: modelWeeklyPercent
-    });
   } else if (data.seven_day_sonnet) {
     modelWeeklyPercent = Math.round(data.seven_day_sonnet.utilization ?? 0);
     modelWeeklyName = 'Sonnet';
     modelWeeklyResetsAt = data.seven_day_sonnet.resets_at;
-    console.log('[claudeOAuthApi] Model (Sonnet):', {
-      utilization: data.seven_day_sonnet.utilization,
-      percent: modelWeeklyPercent
-    });
   }
 
   const snapshot = {
@@ -152,7 +130,6 @@ function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
     lastUpdatedAt: nowIso(),
   };
 
-  console.log('[claudeOAuthApi] Final snapshot:', snapshot);
   return snapshot;
 }
 
@@ -160,8 +137,6 @@ function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
  * Fetch usage snapshot using OAuth credentials
  */
 export async function fetchOAuthUsageSnapshot(): Promise<ClaudeUsageSnapshot> {
-  console.log('[claudeOAuthApi] fetchOAuthUsageSnapshot called');
-
   // Step 1: Read credentials
   const credentials = await readCredentials();
 
@@ -172,8 +147,6 @@ export async function fetchOAuthUsageSnapshot(): Promise<ClaudeUsageSnapshot> {
       'No OAuth credentials found. Please authenticate with Claude Code CLI first:\n  claude\nThen try again.',
     );
   }
-
-  console.log('[claudeOAuthApi] Credentials found, accessToken length:', credentials.claudeAiOauth.accessToken.length);
 
   // Step 2: Fetch usage from API
   const apiData = await fetchUsageFromApi(credentials.claudeAiOauth.accessToken);
