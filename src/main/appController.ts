@@ -1,6 +1,7 @@
 import type { IpcResult, SaveSettingsPayload, SettingsState } from '../common/ipc.ts';
 import { type ClaudeOrganization, type ClaudeUsageSnapshot, nowIso } from '../common/types.ts';
 import { type ClaudeApiService, getClaudeWebRequestErrorStatus } from './services/claudeApi.ts';
+import { ClaudeOAuthApiService } from './services/claudeOAuthApi.ts';
 import type { SessionKeyService } from './services/sessionKey.ts';
 import type { SettingsService } from './services/settings.ts';
 import type { UsageNotificationService } from './services/usageNotification.ts';
@@ -22,6 +23,7 @@ export class AppController {
   private settingsService: SettingsService;
   private sessionKeyService: SessionKeyService;
   private claudeApiService: ClaudeApiService;
+  private claudeOAuthApiService: ClaudeOAuthApiService;
   private trayService: TrayService;
   private usageNotificationService: UsageNotificationService;
 
@@ -45,6 +47,7 @@ export class AppController {
     this.settingsService = options.settingsService;
     this.sessionKeyService = options.sessionKeyService;
     this.claudeApiService = options.claudeApiService;
+    this.claudeOAuthApiService = new ClaudeOAuthApiService();
     this.trayService = options.trayService;
     this.usageNotificationService = options.usageNotificationService;
   }
@@ -219,35 +222,8 @@ export class AppController {
   }
 
   private async refreshAll(): Promise<void> {
-    const sessionKey = await this.sessionKeyService.getCurrentKey();
-    if (!sessionKey) {
-      this.updateSnapshot(this.sessionKeyService.buildMissingKeySnapshot());
-      this.stop();
-      return;
-    }
-
-    let orgId: string | null = null;
-    try {
-      orgId = await this.resolveOrganizationId(sessionKey);
-    } catch {
-      this.updateSnapshot({
-        status: 'error',
-        lastUpdatedAt: nowIso(),
-        errorMessage: 'Failed to fetch organizations.',
-      });
-      return;
-    }
-
-    if (!orgId) {
-      this.updateSnapshot({
-        status: 'error',
-        lastUpdatedAt: nowIso(),
-        errorMessage: 'No organizations found for this account.',
-      });
-      return;
-    }
-
-    const snapshot = await this.claudeApiService.fetchUsageSnapshot(sessionKey, orgId);
+    // Fetch usage directly from OAuth API using ~/.claude/.credentials.json
+    const snapshot = await this.claudeOAuthApiService.fetchUsageSnapshot();
     this.updateSnapshot(snapshot);
     this.usageNotificationService.maybeNotify(snapshot);
 
