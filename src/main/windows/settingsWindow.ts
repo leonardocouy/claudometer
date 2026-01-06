@@ -41,6 +41,8 @@ export class SettingsWindowService {
 
     if (SETTINGS_VITE_DEV_SERVER_URL) {
       void this.window.loadURL(SETTINGS_VITE_DEV_SERVER_URL);
+      // Open DevTools in development mode
+      this.window.webContents.openDevTools({ mode: 'detach' });
     } else {
       const htmlPath = path.join(__dirname, `../renderer/${SETTINGS_VITE_NAME}/index.html`);
       void this.window.loadFile(htmlPath);
