@@ -32,7 +32,9 @@ interface UsageMetric {
 interface UsageApiResponse {
   five_hour: UsageMetric;
   seven_day: UsageMetric;
-  seven_day_opus: UsageMetric;
+  seven_day_opus: UsageMetric | null;
+  seven_day_sonnet?: UsageMetric | null;
+  seven_day_oauth_apps?: UsageMetric | null;
 }
 
 /**
@@ -146,7 +148,7 @@ async function fetchUsageFromApi(): Promise<
       };
     }
 
-    if (!data.five_hour || !data.seven_day || !data.seven_day_opus) {
+    if (!data.five_hour || !data.seven_day) {
       return {
         ok: false,
         error: `Invalid API response structure. Missing required fields. Got: ${JSON.stringify(data)}`,
@@ -169,6 +171,10 @@ async function fetchUsageFromApi(): Promise<
  * Convert API response to ClaudeUsageSnapshot format.
  */
 function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
+  // Use Opus if available, fallback to Sonnet, or use 0 if neither exists
+  const modelMetric = data.seven_day_opus || data.seven_day_sonnet;
+  const modelName = data.seven_day_opus ? 'Opus' : data.seven_day_sonnet ? 'Sonnet' : 'N/A';
+
   return {
     status: 'ok',
     organizationId: 'oauth-user', // No organization concept in OAuth API
@@ -176,9 +182,9 @@ function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
     sessionResetsAt: data.five_hour.resets_at,
     weeklyPercent: data.seven_day.utilization,
     weeklyResetsAt: data.seven_day.resets_at,
-    modelWeeklyPercent: data.seven_day_opus.utilization,
-    modelWeeklyName: 'Opus',
-    modelWeeklyResetsAt: data.seven_day_opus.resets_at,
+    modelWeeklyPercent: modelMetric?.utilization ?? 0,
+    modelWeeklyName: modelName,
+    modelWeeklyResetsAt: modelMetric?.resets_at,
     lastUpdatedAt: new Date().toISOString(),
   };
 }
