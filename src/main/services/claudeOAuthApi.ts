@@ -66,9 +66,10 @@ const OAuthCredentialsSchema = z.object({
 
 /**
  * Zod schema for usage bucket in API response
+ * Note: API returns utilization as integer 0-100, not decimal 0-1
  */
 const UsageBucketSchema = z.object({
-  utilization: z.number().min(0).max(1),
+  utilization: z.number().min(0).max(100),
   resets_at: z.string().optional(),
 });
 
