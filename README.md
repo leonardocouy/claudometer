@@ -139,6 +139,7 @@ The tray will now show your Claude usage stats.
 | **Status States** | Handles ok, unauthorized, rate limited, and missing key states |
 | **Notifications** | Near-limit alerts (>= 90%) and optional reset notifications (when `resets_at` changes) |
 | **Auto-recovery** | Backs off automatically when rate-limited |
+| **Localized Timestamps** | Tray times render in your system locale + time zone |
 | **Updater** | Signed auto-updates via `latest.json` + `.sig` assets in GitHub Releases |
 
 ## Project Structure
