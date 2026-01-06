@@ -6,11 +6,11 @@ import type { SessionKeyService } from './services/sessionKey.ts';
 import type { SettingsService } from './services/settings.ts';
 import type { UsageNotificationService } from './services/usageNotification.ts';
 import type { TrayService } from './tray.ts';
+import { sanitizeString } from '../common/sanitization.ts';
 
+// Use centralized sanitization utility
 function sanitizeMessage(message: string): string {
-  let sanitized = message.replaceAll(/sessionKey=[^;\s]+/gi, 'sessionKey=REDACTED');
-  sanitized = sanitized.replaceAll(/sk-ant-sid01-[A-Za-z0-9_-]+/g, 'sk-ant-sid01-REDACTED');
-  return sanitized;
+  return sanitizeString(message);
 }
 
 function withJitter(baseMs: number, jitterFraction = 0.2): number {
