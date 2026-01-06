@@ -228,11 +228,14 @@ export class SettingsService {
 
   getUsageSource(): 'web' | 'cli' {
     const value = this.store.get('usageSource', 'web');
+    console.log('[SettingsService] getUsageSource - raw value from store:', value, '- returning:', value === 'cli' ? 'cli' : 'web');
     return value === 'cli' ? 'cli' : 'web';
   }
 
   setUsageSource(source: 'web' | 'cli'): void {
+    console.log('[SettingsService] setUsageSource - setting value:', source);
     this.store.set('usageSource', source);
+    console.log('[SettingsService] setUsageSource - value after set:', this.store.get('usageSource'));
   }
 
   getClaudeCliPath(): string {
