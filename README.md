@@ -17,6 +17,49 @@ Download the latest release for your platform:
 
 ### Build from Source
 
+#### Prerequisites
+
+**macOS:**
+```bash
+# Install Xcode Command Line Tools
+xcode-select --install
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt update && sudo apt install -y \
+  libwebkit2gtk-4.1-dev \
+  libappindicator3-dev \
+  pkg-config \
+  build-essential
+```
+
+**Linux (Fedora/RHEL):**
+```bash
+sudo dnf install \
+  webkit2gtk4.1-devel \
+  libappindicator-gtk3-devel \
+  pkg-config \
+  gcc-c++
+```
+
+**Linux (Arch):**
+```bash
+sudo pacman -S \
+  webkit2gtk-4.1 \
+  libappindicator-gtk3 \
+  pkg-config \
+  base-devel
+```
+
+> **Note**: The packages above are the minimum required. If the build fails, you may need additional dependencies that come transitively with `libwebkit2gtk-4.1-dev` on some distributions. Only install these if the build explicitly fails:
+> ```bash
+> # Only if build fails:
+> sudo apt install libjavascriptcoregtk-4.1-dev libsoup-3.0-dev
+> ```
+
+#### Build Steps
+
 1. **Install Bun**
    ```bash
    curl -fsSL https://bun.sh/install | bash
