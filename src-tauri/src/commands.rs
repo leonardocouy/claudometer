@@ -35,6 +35,8 @@ const KEYRING_SERVICE: &str = "com.softaworks.claudometer";
 const KEYRING_USER: &str = "claude_session_key";
 
 type CommandResult<T> = Result<T, IpcError>;
+type OrgsCacheEntry = (Vec<ClaudeOrganization>, Instant);
+type OrgsCache = Option<OrgsCacheEntry>;
 
 #[derive(Clone)]
 pub struct SessionKeyManager {
@@ -163,7 +165,7 @@ pub struct AppState<R: Runtime> {
     pub session_key: SessionKeyManager,
     pub claude: Arc<ClaudeApiClient>,
     pub organizations: Arc<Mutex<Vec<ClaudeOrganization>>>,
-    pub orgs_cache: Arc<Mutex<Option<(Vec<ClaudeOrganization>, Instant)>>>,
+    pub orgs_cache: Arc<Mutex<OrgsCache>>,
     pub latest_snapshot: Arc<Mutex<Option<ClaudeUsageSnapshot>>>,
     pub reset_baseline_by_org: Arc<Mutex<HashMap<String, UsageResetBaseline>>>,
     pub debug_override: Arc<Mutex<DebugOverride>>,

@@ -124,42 +124,6 @@ fn format_datetime_full(iso: &str) -> String {
     format!("{date}, {time}")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sample_rfc3339_utc() -> &'static str {
-        "2026-01-06T22:59:31Z"
-    }
-
-    #[test]
-    fn format_time_short_strips_seconds_for_common_time_patterns() {
-        assert_eq!(strip_seconds_from_time_string("06:54:32 AM"), "06:54 AM");
-        assert_eq!(strip_seconds_from_time_string("18:54:32"), "18:54");
-        assert_eq!(strip_seconds_from_time_string("06:54 AM"), "06:54 AM");
-    }
-
-    #[test]
-    fn format_time_short_and_datetime_full_do_not_crash() {
-        assert!(format_time_short(sample_rfc3339_utc()).is_some());
-        let formatted = format_datetime_full(sample_rfc3339_utc());
-        assert!(formatted.contains(", "));
-    }
-
-    #[test]
-    fn format_datetime_full_falls_back_to_raw_input_on_parse_error() {
-        let input = "not-a-datetime";
-        assert_eq!(format_datetime_full(input), input);
-    }
-
-    #[test]
-    fn normalize_locale_tag_handles_common_env_values() {
-        assert_eq!(normalize_locale_tag("pt_BR.UTF-8"), "pt_BR");
-        assert_eq!(normalize_locale_tag("de-de.UTF-8"), "de_DE");
-        assert_eq!(normalize_locale_tag("C.UTF-8"), "POSIX");
-    }
-}
-
 fn debug_menu_enabled() -> bool {
     matches!(
         std::env::var("CLAUDOMETER_DEBUG").as_deref(),
@@ -356,11 +320,7 @@ fn build_menu<R: Runtime>(
     let sep3 = PredefinedMenuItem::separator(app)?;
     let sep4 = PredefinedMenuItem::separator(app)?;
 
-    let mut refs: Vec<&dyn tauri::menu::IsMenuItem<R>> = Vec::new();
-    refs.push(&header);
-    refs.push(&sep);
-    refs.push(&session);
-    refs.push(&weekly);
+    let mut refs: Vec<&dyn tauri::menu::IsMenuItem<R>> = vec![&header, &sep, &session, &weekly];
     for item in &model_items {
         refs.push(item);
     }
@@ -416,4 +376,40 @@ fn build_menu<R: Runtime>(
     refs.push(&quit);
 
     Menu::with_items(app, refs.as_slice())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_rfc3339_utc() -> &'static str {
+        "2026-01-06T22:59:31Z"
+    }
+
+    #[test]
+    fn format_time_short_strips_seconds_for_common_time_patterns() {
+        assert_eq!(strip_seconds_from_time_string("06:54:32 AM"), "06:54 AM");
+        assert_eq!(strip_seconds_from_time_string("18:54:32"), "18:54");
+        assert_eq!(strip_seconds_from_time_string("06:54 AM"), "06:54 AM");
+    }
+
+    #[test]
+    fn format_time_short_and_datetime_full_do_not_crash() {
+        assert!(format_time_short(sample_rfc3339_utc()).is_some());
+        let formatted = format_datetime_full(sample_rfc3339_utc());
+        assert!(formatted.contains(", "));
+    }
+
+    #[test]
+    fn format_datetime_full_falls_back_to_raw_input_on_parse_error() {
+        let input = "not-a-datetime";
+        assert_eq!(format_datetime_full(input), input);
+    }
+
+    #[test]
+    fn normalize_locale_tag_handles_common_env_values() {
+        assert_eq!(normalize_locale_tag("pt_BR.UTF-8"), "pt_BR");
+        assert_eq!(normalize_locale_tag("de-de.UTF-8"), "de_DE");
+        assert_eq!(normalize_locale_tag("C.UTF-8"), "POSIX");
+    }
 }

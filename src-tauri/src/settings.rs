@@ -87,6 +87,6 @@ impl<R: Runtime> SettingsStore<R> {
     }
 
     pub fn remove(&self, key: &str) {
-        let _ = self.store.delete(key.to_string());
+        let _ = self.store.delete(key);
     }
 }

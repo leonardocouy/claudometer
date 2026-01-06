@@ -67,8 +67,8 @@ pub fn decide_near_limit_alerts(params: DecideNearLimitAlertsParams<'_>) -> Near
     NearLimitAlertDecision {
         notify_session,
         notify_weekly,
-        session_period_id: notify_session.then(|| session_period_id),
-        weekly_period_id: notify_weekly.then(|| weekly_period_id),
+        session_period_id: notify_session.then_some(session_period_id),
+        weekly_period_id: notify_weekly.then_some(weekly_period_id),
     }
 }
 
@@ -124,8 +124,8 @@ pub fn decide_usage_resets(params: DecideUsageResetsParams<'_>) -> UsageResetDec
     UsageResetDecision {
         notify_session_reset,
         notify_weekly_reset,
-        session_reset_period_id: notify_session_reset.then(|| session_period_id),
-        weekly_reset_period_id: notify_weekly_reset.then(|| weekly_period_id),
+        session_reset_period_id: notify_session_reset.then_some(session_period_id),
+        weekly_reset_period_id: notify_weekly_reset.then_some(weekly_period_id),
     }
 }
 
