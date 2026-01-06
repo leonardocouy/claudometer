@@ -14,6 +14,14 @@ Pick a safe location outside the repo (do not commit the private key):
 ./scripts/generate-updater-keypair.sh "$HOME/.config/claudometer/tauri-updater.key"
 ```
 
+If you prefer keeping a local copy in the repo for convenience, use `.secrets/` (it is gitignored):
+
+```bash
+./scripts/generate-updater-keypair.sh "$PWD/.secrets/tauri-updater.key"
+```
+
+**Warning**: `.gitignore` reduces accidental commits, but it does not eliminate leakage risk. Treat the private key as a long-lived release credential.
+
 This writes:
 - private key: `.../tauri-updater.key` (keep secret)
 - public key: `.../tauri-updater.key.pub`

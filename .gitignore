@@ -53,3 +53,6 @@ models/
 
 # Local settings
 .env
+
+# Local secrets (DO NOT COMMIT)
+.secrets/
