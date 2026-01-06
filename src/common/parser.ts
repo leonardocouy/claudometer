@@ -106,7 +106,6 @@ function readModelWeeklyUsages(
     out.push({
       percent,
       name: titleCase(key.replace('seven_day_', '')),
-      percent: parseUtilizationPercent(period.utilization),
       resetsAt: readString(period.resets_at),
     });
   }
