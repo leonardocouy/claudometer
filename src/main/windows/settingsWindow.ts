@@ -47,7 +47,6 @@ export class SettingsWindowService {
     }
 
     this.window.setMenuBarVisibility(false);
-    this.window.webContents.openDevTools(); // Open DevTools automatically
     this.window.on('closed', () => {
       this.window = null;
     });
