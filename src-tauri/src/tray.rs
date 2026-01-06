@@ -203,7 +203,6 @@ fn build_menu<R: Runtime>(
   };
 
   let header = MenuItem::with_id(app, "header", header_text, false, None::<&str>)?;
-  let error_line = MenuItem::with_id(app, "error_line", "", false, None::<&str>)?;
   let last_updated = MenuItem::with_id(app, "last_updated", "Last updated: --", false, None::<&str>)?;
 
   let (session, weekly, model_items, error_text, last_updated_text) = match snapshot {
@@ -287,8 +286,15 @@ fn build_menu<R: Runtime>(
 
   let session = MenuItem::with_id(app, "session", session, false, None::<&str>)?;
   let weekly = MenuItem::with_id(app, "weekly", weekly, false, None::<&str>)?;
-  let _ = error_line.set_text(error_text);
   let _ = last_updated.set_text(last_updated_text);
+
+  let error_line = if error_text.trim().is_empty() {
+    None
+  } else {
+    let item = MenuItem::with_id(app, "error_line", "", false, None::<&str>)?;
+    let _ = item.set_text(error_text);
+    Some(item)
+  };
 
   let refresh_now = MenuItem::with_id(app, ITEM_REFRESH_NOW, "Refresh now", true, None::<&str>)?;
   let open_settings = MenuItem::with_id(app, ITEM_OPEN_SETTINGS, "Open Settings…", true, None::<&str>)?;
@@ -308,7 +314,9 @@ fn build_menu<R: Runtime>(
   for item in &model_items {
     refs.push(item);
   }
-  refs.push(&error_line);
+  if let Some(error_line) = &error_line {
+    refs.push(error_line);
+  }
   refs.push(&sep2);
   refs.push(&last_updated);
   refs.push(&sep3);
