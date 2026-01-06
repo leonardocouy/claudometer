@@ -20,32 +20,21 @@ interface OAuthCredentials {
 
 interface UsageApiResponse {
   five_hour?: {
-    units_used: number;
-    units_limit: number;
+    utilization: number;
     resets_at?: string;
   };
   seven_day?: {
-    units_used: number;
-    units_limit: number;
+    utilization: number;
     resets_at?: string;
   };
   seven_day_opus?: {
-    units_used: number;
-    units_limit: number;
+    utilization: number;
     resets_at?: string;
   } | null;
   seven_day_sonnet?: {
-    units_used: number;
-    units_limit: number;
+    utilization: number;
     resets_at?: string;
   } | null;
-}
-
-function toPercent(used: number | undefined, limit: number | undefined): number {
-  if (typeof used !== 'number' || typeof limit !== 'number' || limit <= 0) {
-    return 0;
-  }
-  return Math.round((used / limit) * 100);
 }
 
 function errorSnapshot(status: 'error' | 'unauthorized', message: string): ClaudeUsageSnapshot {
@@ -111,21 +100,19 @@ async function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse 
 function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
   console.log('[claudeOAuthApi] Converting API response to snapshot...');
 
-  // Session (5-hour) usage
-  const sessionPercent = toPercent(data.five_hour?.units_used, data.five_hour?.units_limit);
+  // Session (5-hour) usage - API returns utilization as percentage directly
+  const sessionPercent = Math.round(data.five_hour?.utilization ?? 0);
   const sessionResetsAt = data.five_hour?.resets_at;
   console.log('[claudeOAuthApi] Session:', {
-    used: data.five_hour?.units_used,
-    limit: data.five_hour?.units_limit,
+    utilization: data.five_hour?.utilization,
     percent: sessionPercent
   });
 
-  // Weekly (7-day) usage
-  const weeklyPercent = toPercent(data.seven_day?.units_used, data.seven_day?.units_limit);
+  // Weekly (7-day) usage - API returns utilization as percentage directly
+  const weeklyPercent = Math.round(data.seven_day?.utilization ?? 0);
   const weeklyResetsAt = data.seven_day?.resets_at;
   console.log('[claudeOAuthApi] Weekly:', {
-    used: data.seven_day?.units_used,
-    limit: data.seven_day?.units_limit,
+    utilization: data.seven_day?.utilization,
     percent: weeklyPercent
   });
 
@@ -135,27 +122,19 @@ function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
   let modelWeeklyResetsAt: string | undefined;
 
   if (data.seven_day_opus) {
-    modelWeeklyPercent = toPercent(
-      data.seven_day_opus.units_used,
-      data.seven_day_opus.units_limit,
-    );
+    modelWeeklyPercent = Math.round(data.seven_day_opus.utilization ?? 0);
     modelWeeklyName = 'Opus';
     modelWeeklyResetsAt = data.seven_day_opus.resets_at;
     console.log('[claudeOAuthApi] Model (Opus):', {
-      used: data.seven_day_opus.units_used,
-      limit: data.seven_day_opus.units_limit,
+      utilization: data.seven_day_opus.utilization,
       percent: modelWeeklyPercent
     });
   } else if (data.seven_day_sonnet) {
-    modelWeeklyPercent = toPercent(
-      data.seven_day_sonnet.units_used,
-      data.seven_day_sonnet.units_limit,
-    );
+    modelWeeklyPercent = Math.round(data.seven_day_sonnet.utilization ?? 0);
     modelWeeklyName = 'Sonnet';
     modelWeeklyResetsAt = data.seven_day_sonnet.resets_at;
     console.log('[claudeOAuthApi] Model (Sonnet):', {
-      used: data.seven_day_sonnet.units_used,
-      limit: data.seven_day_sonnet.units_limit,
+      utilization: data.seven_day_sonnet.utilization,
       percent: modelWeeklyPercent
     });
   }
