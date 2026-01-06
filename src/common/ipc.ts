@@ -26,7 +26,6 @@ export type SettingsState = {
 };
 
 export type SaveSettingsPayload = {
-  usageSource: UsageSource;
   sessionKey?: string;
   rememberSessionKey: boolean;
   refreshIntervalSeconds: number;
@@ -35,7 +34,6 @@ export type SaveSettingsPayload = {
   checkUpdatesOnStartup: boolean;
   selectedOrganizationId?: string;
   usageSource: UsageSource;
-  claudeCliPath: string;
 };
 
 export type IpcErrorCode =

@@ -66,8 +66,8 @@ Claudometer supports two authentication modes that share the same `ClaudeUsageSn
 4. Sent as `Cookie: sessionKey=...` header
 
 **Credential Location:**
-- Encrypted ciphertext in `electron-store` config file
-- Decrypted in-memory on app start
+- If “Remember session key” is enabled: stored in OS credential storage via Rust `keyring`
+- Otherwise: kept in-memory only for the current app session
 
 ### CLI Mode (OAuth)
 
@@ -108,15 +108,13 @@ Claudometer supports two authentication modes that share the same `ClaudeUsageSn
 
 ### Routing Logic
 
-The `AppController` routes to the correct service based on the `usageSource` setting:
+The Rust backend routes to the correct fetcher based on the `usageSource` setting:
 
-```typescript
-// Simplified routing logic
-if (usageSource === 'cli') {
-  return claudeCliService.fetchUsageSnapshot(); // → OAuth API
+```rust
+if usage_source == UsageSource::Cli {
+  fetch_oauth_usage_snapshot()
 } else {
-  // Fetch orgs, select org, then fetch usage
-  return claudeApiService.fetchUsageSnapshot(orgId); // → Web API
+  fetch_claude_web_usage_snapshot(org_id)
 }
 ```
 
