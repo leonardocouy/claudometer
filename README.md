@@ -39,12 +39,32 @@ Download the latest release for your platform:
 
 ## What This Does
 
-Monitors your Claude.ai usage and displays it in your system tray:
+Monitors your Claude usage and displays it in your system tray:
 - **5-hour session utilization** - How much you've used in the current rolling 5-hour window
 - **Weekly utilization** - Your overall weekly Claude usage
 - **Model-specific weekly usage** - Weekly limits for specific models (Opus, Sonnet, etc.)
 
-The app polls Claude's web API at configurable intervals and updates the tray icon color based on your usage status.
+The app polls Claude's API at configurable intervals and updates the tray icon color based on your usage status.
+
+## Authentication Modes
+
+Claudometer supports **two authentication modes** - choose the one that fits your workflow:
+
+### 🌐 Web Mode (Default)
+Uses your Claude web session cookie (`sessionKey`) to access Claude.ai's web API.
+- **Best for**: Regular Claude web users
+- **Setup**: Extract session key from browser cookies (see Quick Start)
+- **Pros**: Works immediately, no additional tools needed
+- **Cons**: Session keys expire periodically (need to refresh)
+
+### 🔧 CLI Mode (OAuth)
+Uses Claude Code CLI OAuth credentials to access the Anthropic API directly.
+- **Best for**: Claude Code CLI users, automation, long-lived sessions
+- **Setup**: Authenticate once with `claude` CLI (credentials stored in `~/.claude/.credentials.json`)
+- **Pros**: No manual session key extraction, tokens refresh automatically
+- **Cons**: Requires Claude Code CLI installed and authenticated
+
+Both modes track the same metrics and provide identical functionality. You can switch between modes anytime in Settings.
 
 ## Quick Start (Development)
 
@@ -53,11 +73,22 @@ The app polls Claude's web API at configurable intervals and updates the tray ic
    bun install
    ```
 
-2. **Get your Claude session key**
+2. **Choose your authentication mode**
+
+   ### Option A: Web Mode (Session Key)
    - Log in to [claude.ai](https://claude.ai)
    - Open DevTools (F12 or Cmd+Option+I)
    - Go to **Application** → **Cookies** → `https://claude.ai`
    - Copy the `sessionKey` value
+
+   ### Option B: CLI Mode (OAuth) - Recommended
+   - Install Claude Code CLI: https://docs.anthropic.com/en/docs/agent-code
+   - Authenticate once:
+     ```bash
+     claude
+     # Follow OAuth flow in browser
+     ```
+   - Credentials saved to `~/.claude/.credentials.json` automatically
 
 3. **Run in development mode**
    ```bash
@@ -66,7 +97,8 @@ The app polls Claude's web API at configurable intervals and updates the tray ic
 
 4. **Configure the app**
    - Click the tray icon → **"Open Settings..."**
-   - Paste your session key
+   - **Web mode**: Select "Claude Web" and paste your session key
+   - **CLI mode**: Select "Claude Code CLI" (no additional input needed)
    - Set refresh interval (default: 60s)
    - Save
 
@@ -76,10 +108,11 @@ The tray will now show your Claude usage stats.
 
 | Feature | Description |
 |---------|-------------|
+| **Dual Authentication** | Web mode (session key) or CLI mode (OAuth API) - your choice |
 | **System Tray** | Lives in your menu bar/system tray - always visible |
 | **Real-time Updates** | Configurable polling (minimum 10 seconds) |
-| **Multi-organization** | Supports accounts with multiple Claude orgs |
-| **Secure Storage** | Session key stored encrypted via Electron `safeStorage` (ciphertext in `electron-store`) when available; otherwise memory-only |
+| **Multi-organization** | Supports accounts with multiple Claude orgs (Web mode) |
+| **Secure Storage** | Web: Session key encrypted via `safeStorage`. CLI: OAuth tokens in `~/.claude/.credentials.json` |
 | **Status Indicators** | Tray icon changes color based on status (green=ok, red=unauthorized, orange=rate limited) |
 | **Auto-recovery** | Backs off automatically when rate-limited |
 
@@ -112,7 +145,7 @@ claudometer/
 │ User Actions                                                │
 │ • Launch app                                                │
 │ • Open settings                                             │
-│ • Provide session key                                       │
+│ • Select mode: Web (session key) OR CLI (OAuth)            │
 └────────────┬────────────────────────────────────────────────┘
              │
              ▼
@@ -120,33 +153,55 @@ claudometer/
 │ Main Process (src/main.ts)                                 │
 │ • Initializes tray icon                                     │
 │ • Starts polling timer (configurable interval)              │
-│ • Coordinates data flow                                     │
+│ • Routes to correct API service based on mode               │
 └────────────┬────────────────────────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ Polling Loop                                                │
-│ 1. Fetch organizations (if needed)                          │
-│ 2. Fetch usage snapshot for selected org                    │
-│ 3. Parse JSON response                                      │
-│ 4. Update tray icon and menu                                │
-└────────────┬────────────────────────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Claude Web API Client                                       │
-│ • GET /api/organizations                                    │
-│ • GET /api/organizations/:id/usage                          │
-│ • Includes sessionKey in Cookie header                      │
-└─────────────────────────────────────────────────────────────┘
+│ AppController - Dual Routing                                │
+│ • Checks usageSource setting ('web' or 'cli')               │
+│ • Routes to appropriate service                             │
+└───────┬─────────────────────────────────────────────────────┘
+        │
+        ├──────────────────┬──────────────────────────────────┐
+        │                  │                                  │
+        ▼                  ▼                                  ▼
+┌──────────────┐  ┌──────────────┐               ┌──────────────┐
+│  WEB MODE    │  │  CLI MODE    │               │ Polling Loop │
+│              │  │              │               │ (Either Mode)│
+│ Claude Web   │  │ OAuth API    │               └──────────────┘
+│ API Client   │  │ Client       │                      │
+│              │  │              │                      ▼
+│ • GET /api/  │  │ • GET oauth/ │               1. Fetch usage
+│   orgs       │  │   usage      │               2. Parse JSON
+│ • GET /api/  │  │ • Bearer     │               3. Update tray
+│   orgs/:id/  │  │   token from │
+│   usage      │  │   ~/.claude/ │
+│ • Cookie:    │  │   .credentials│
+│   sessionKey │  │              │
+└──────────────┘  └──────────────┘
+        │                  │
+        └──────────┬───────┘
+                   ▼
+        ┌─────────────────────┐
+        │ ClaudeUsageSnapshot │
+        │ (unified format)    │
+        └─────────────────────┘
 ```
 
 ### Data Flow
 
+**Web Mode:**
 1. **App starts** → Loads saved session key from encrypted storage (if available)
-2. **Every N seconds** → Polls Claude API for usage data
+2. **Every N seconds** → Polls Claude.ai Web API for usage data
 3. **On response** → Parses JSON, updates tray icon color and menu text
 4. **On error** → Updates tray to show error state, stops polling if unauthorized (401/403)
+
+**CLI Mode:**
+1. **App starts** → Reads OAuth credentials from `~/.claude/.credentials.json`
+2. **Every N seconds** → Calls Anthropic OAuth API with Bearer token
+3. **On response** → Parses JSON (same format), updates tray
+4. **On error** → Shows "re-authenticate with claude" if 401, continues polling otherwise
 
 ## Development
 
@@ -184,36 +239,59 @@ claudometer/
 
 ## Security & Privacy
 
-### Session Key Handling
+### Authentication Handling
 
-- **Encrypted at rest** (when available): Stored via Electron `safeStorage` and persisted only as ciphertext in `electron-store`
+**Web Mode:**
+- **Encrypted at rest** (when available): Session key stored via Electron `safeStorage` and persisted only as ciphertext in `electron-store`
 - **If encryption unavailable**: Used in-memory for the current run only (no persistence)
 - **Never logged**: Session key is never included in logs, error messages, or telemetry
 - **Validation before storage**: Session key is validated against Claude API before being saved
 
-### What Gets Sent to Claude
+**CLI Mode:**
+- **Managed by Claude CLI**: OAuth tokens stored in `~/.claude/.credentials.json` (managed by Claude Code CLI)
+- **Auto-refresh**: Tokens are refreshed automatically by the CLI
+- **Claudometer reads only**: App only reads credentials, never modifies them
+- **No persistence**: Claudometer doesn't store or cache OAuth tokens
 
-Only standard HTTPS requests to `claude.ai/api/*` endpoints:
-- `GET /api/organizations` - Fetch available organizations
-- `GET /api/organizations/:id/usage` - Fetch usage stats
+### What Gets Sent
 
-Your session key is sent as a Cookie header (same as when using Claude in a browser).
+**Web Mode:**
+- HTTPS requests to `claude.ai/api/*` endpoints:
+  - `GET /api/organizations` - Fetch available organizations
+  - `GET /api/organizations/:id/usage` - Fetch usage stats
+- Session key sent as Cookie header (same as browser)
+
+**CLI Mode:**
+- HTTPS requests to `api.anthropic.com/api/oauth/*` endpoints:
+  - `GET /api/oauth/usage` - Fetch usage stats
+- OAuth token sent as Bearer header
 
 ### Local Storage
 
 The app stores these settings locally via `electron-store`:
+- **usageSource**: 'web' or 'cli' (which mode is active)
 - Refresh interval (seconds)
-- Selected organization ID
-- "Remember session key" preference
+- Selected organization ID (Web mode only)
+- "Remember session key" preference (Web mode only)
 
 ## Troubleshooting
 
 ### Tray shows "unauthorized"
 
+**Web Mode:**
 Your session key is invalid or expired:
 1. Open Settings
 2. Get a fresh session key from claude.ai (see Quick Start)
 3. Paste and save
+
+**CLI Mode:**
+Your OAuth token expired:
+1. Re-authenticate with Claude Code CLI:
+   ```bash
+   claude
+   # Follow OAuth flow again
+   ```
+2. App will automatically use new credentials
 
 ### Tray shows "rate limited"
 
@@ -237,9 +315,27 @@ Your Claude account doesn't have any organizations:
 ### Polling stopped
 
 Check the tray menu:
-- **Unauthorized**: Session key expired (see above)
+- **Unauthorized**: Session key/token expired (see above)
 - **Rate limited**: Auto-recovers in 5 minutes
 - **Error**: Check the error message in the tray menu
+
+### CLI mode not working
+
+If you selected "Claude Code CLI" but see "No OAuth credentials found":
+1. **Check credentials file exists**:
+   ```bash
+   ls -la ~/.claude/.credentials.json
+   ```
+2. **If missing, authenticate**:
+   ```bash
+   claude
+   # Follow OAuth flow in browser
+   ```
+3. **Check file permissions**:
+   ```bash
+   chmod 600 ~/.claude/.credentials.json
+   ```
+4. **Restart app** to reload credentials
 
 ## Roadmap
 
