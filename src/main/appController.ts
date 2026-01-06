@@ -1,6 +1,7 @@
 import type { IpcResult, SaveSettingsPayload, SettingsState } from '../common/ipc.ts';
 import { type ClaudeOrganization, type ClaudeUsageSnapshot, nowIso } from '../common/types.ts';
 import { type ClaudeApiService, getClaudeWebRequestErrorStatus } from './services/claudeApi.ts';
+import type { ClaudeCliService } from './services/claudeCli.ts';
 import type { SessionKeyService } from './services/sessionKey.ts';
 import type { SettingsService } from './services/settings.ts';
 import type { UsageNotificationService } from './services/usageNotification.ts';
@@ -22,6 +23,7 @@ export class AppController {
   private settingsService: SettingsService;
   private sessionKeyService: SessionKeyService;
   private claudeApiService: ClaudeApiService;
+  private claudeCliService: ClaudeCliService;
   private trayService: TrayService;
   private usageNotificationService: UsageNotificationService;
 
@@ -39,12 +41,14 @@ export class AppController {
     settingsService: SettingsService;
     sessionKeyService: SessionKeyService;
     claudeApiService: ClaudeApiService;
+    claudeCliService: ClaudeCliService;
     trayService: TrayService;
     usageNotificationService: UsageNotificationService;
   }) {
     this.settingsService = options.settingsService;
     this.sessionKeyService = options.sessionKeyService;
     this.claudeApiService = options.claudeApiService;
+    this.claudeCliService = options.claudeCliService;
     this.trayService = options.trayService;
     this.usageNotificationService = options.usageNotificationService;
   }
@@ -75,6 +79,8 @@ export class AppController {
       selectedOrganizationId: this.settingsService.getSelectedOrganizationId(),
       latestSnapshot: this.latestSnapshot,
       encryptionAvailable: this.sessionKeyService.isEncryptionAvailable(),
+      usageSource: this.settingsService.getUsageSource(),
+      claudeCliPath: this.settingsService.getClaudeCliPath(),
     };
   }
 
@@ -88,8 +94,19 @@ export class AppController {
       };
     }
 
+    // Validate CLI path if in CLI mode
+    const usageSource = parsed.usageSource || 'web';
+    const claudeCliPath = parsed.claudeCliPath?.trim() || 'claude';
+    if (usageSource === 'cli' && !claudeCliPath) {
+      return {
+        ok: false,
+        error: { code: 'VALIDATION', message: 'Claude CLI path cannot be empty.' },
+      };
+    }
+
     const candidateSessionKey = parsed.sessionKey?.trim();
-    if (candidateSessionKey) {
+    // Only validate session key if in web mode
+    if (usageSource === 'web' && candidateSessionKey) {
       try {
         const fetchedOrgs = await this.claudeApiService.fetchOrganizations(candidateSessionKey);
         this.organizations = fetchedOrgs;
@@ -136,6 +153,9 @@ export class AppController {
     }
     this.settingsService.setRememberSessionKey(Boolean(parsed.rememberSessionKey));
     this.settingsService.setNotifyOnUsageReset(Boolean(parsed.notifyOnUsageReset));
+    this.settingsService.setUsageSource(usageSource);
+    this.settingsService.setClaudeCliPath(claudeCliPath);
+    this.claudeCliService.setCliPath(claudeCliPath);
 
     await this.refreshNow();
     return { ok: true, value: null };
@@ -219,6 +239,26 @@ export class AppController {
   }
 
   private async refreshAll(): Promise<void> {
+    const usageSource = this.settingsService.getUsageSource();
+
+    if (usageSource === 'cli') {
+      await this.refreshFromCli();
+    } else {
+      await this.refreshFromWeb();
+    }
+  }
+
+  private async refreshFromCli(): Promise<void> {
+    const snapshot = await this.claudeCliService.fetchUsageSnapshot();
+    this.updateSnapshot(snapshot);
+    this.usageNotificationService.maybeNotify(snapshot);
+
+    if (snapshot.status === 'unauthorized') {
+      this.stop();
+    }
+  }
+
+  private async refreshFromWeb(): Promise<void> {
     const sessionKey = await this.sessionKeyService.getCurrentKey();
     if (!sessionKey) {
       this.updateSnapshot(this.sessionKeyService.buildMissingKeySnapshot());

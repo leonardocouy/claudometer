@@ -1,5 +1,7 @@
 export type UsageStatus = 'ok' | 'unauthorized' | 'rate_limited' | 'error' | 'missing_key';
 
+export type UsageSource = 'web' | 'cli';
+
 export type ClaudeUsageSnapshot =
   | {
       status: 'ok';

@@ -1,6 +1,6 @@
 import './styles.css';
 import type { IpcResult, SettingsState } from '../../common/ipc.ts';
-import type { ClaudeOrganization, ClaudeUsageSnapshot } from '../../common/types.ts';
+import type { ClaudeOrganization, ClaudeUsageSnapshot, UsageSource } from '../../common/types.ts';
 
 const el = <T extends HTMLElement>(root: ParentNode, selector: string): T => {
   const node = root.querySelector(selector);
@@ -59,25 +59,42 @@ function setResultError(statusBoxEl: HTMLElement, result: IpcResult<unknown>): v
   );
 }
 
-async function loadState(
-  sessionKeyEl: HTMLInputElement,
-  rememberKeyEl: HTMLSelectElement,
-  refreshIntervalEl: HTMLInputElement,
-  notifyResetEl: HTMLSelectElement,
-  orgSelectEl: HTMLSelectElement,
-  statusBoxEl: HTMLElement,
-  storageHintEl: HTMLElement,
-): Promise<SettingsState> {
+type Elements = {
+  usageSourceEl: HTMLSelectElement;
+  sessionKeyEl: HTMLInputElement;
+  rememberKeyEl: HTMLSelectElement;
+  claudeCliPathEl: HTMLInputElement;
+  refreshIntervalEl: HTMLInputElement;
+  notifyResetEl: HTMLSelectElement;
+  orgSelectEl: HTMLSelectElement;
+  statusBoxEl: HTMLElement;
+  storageHintEl: HTMLElement;
+  webOnlySection: HTMLElement;
+  cliOnlySection: HTMLElement;
+  forgetKeyButton: HTMLButtonElement;
+};
+
+function updateSourceVisibility(source: UsageSource, elements: Elements): void {
+  const isWebMode = source === 'web';
+  elements.webOnlySection.style.display = isWebMode ? '' : 'none';
+  elements.cliOnlySection.style.display = isWebMode ? 'none' : '';
+  elements.forgetKeyButton.style.display = isWebMode ? '' : 'none';
+}
+
+async function loadState(elements: Elements): Promise<SettingsState> {
   const state = await window.api.settings.getState();
-  rememberKeyEl.value = String(Boolean(state.rememberSessionKey));
-  refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
-  notifyResetEl.value = String(state.notifyOnUsageReset ?? true);
-  renderOrgs(orgSelectEl, state.organizations || [], state.selectedOrganizationId);
-  storageHintEl.textContent = state.encryptionAvailable
+  elements.usageSourceEl.value = state.usageSource;
+  elements.rememberKeyEl.value = String(Boolean(state.rememberSessionKey));
+  elements.refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
+  elements.notifyResetEl.value = String(state.notifyOnUsageReset ?? true);
+  elements.claudeCliPathEl.value = state.claudeCliPath || 'claude';
+  renderOrgs(elements.orgSelectEl, state.organizations || [], state.selectedOrganizationId);
+  elements.storageHintEl.textContent = state.encryptionAvailable
     ? ''
     : 'Encrypted storage is unavailable on this system. "Remember" will be memory-only (no persistence across restarts).';
-  setStatus(statusBoxEl, renderSnapshot(state.latestSnapshot));
-  sessionKeyEl.value = '';
+  setStatus(elements.statusBoxEl, renderSnapshot(state.latestSnapshot));
+  elements.sessionKeyEl.value = '';
+  updateSourceVisibility(state.usageSource, elements);
   return state;
 }
 
@@ -86,39 +103,58 @@ function renderApp(root: HTMLElement): void {
     <h1>Claudometer</h1>
 
     <div class="row">
-      <label for="sessionKey">Claude session key (from claude.ai cookies)</label>
-      <input id="sessionKey" type="password" placeholder="sk-ant-sid01-..." autocomplete="off" />
-      <div class="hint">Never paste this anywhere else. It is stored only if "Remember" is enabled.</div>
+      <label for="usageSource">Usage data source</label>
+      <select id="usageSource">
+        <option value="web">Claude Web (session key)</option>
+        <option value="cli">Claude Code CLI (claude /usage)</option>
+      </select>
+      <div class="hint">Choose how to fetch usage data</div>
+    </div>
+
+    <div id="webOnlySection">
+      <div class="row">
+        <label for="sessionKey">Claude session key (from claude.ai cookies)</label>
+        <input id="sessionKey" type="password" placeholder="sk-ant-sid01-..." autocomplete="off" />
+        <div class="hint">Never paste this anywhere else. It is stored only if "Remember" is enabled.</div>
+      </div>
+
+      <div class="row inline">
+        <div>
+          <label for="rememberKey">Remember session key (encrypted storage)</label>
+          <select id="rememberKey">
+            <option value="false">No (memory only)</option>
+            <option value="true">Yes</option>
+          </select>
+          <div class="hint" id="storageHint"></div>
+        </div>
+        <div>
+          <label for="orgSelect">Organization</label>
+          <select id="orgSelect"></select>
+          <div class="hint">If empty, save a valid key and click Refresh.</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="cliOnlySection" style="display: none;">
+      <div class="row">
+        <label for="claudeCliPath">Claude CLI path</label>
+        <input id="claudeCliPath" type="text" placeholder="claude" autocomplete="off" />
+        <div class="hint">Path to the Claude Code CLI binary (default: claude)</div>
+      </div>
     </div>
 
     <div class="row inline">
       <div>
-        <label for="rememberKey">Remember session key (encrypted storage)</label>
-        <select id="rememberKey">
-          <option value="false">No (memory only)</option>
-          <option value="true">Yes</option>
-        </select>
-        <div class="hint" id="storageHint"></div>
-      </div>
-      <div>
         <label for="refreshInterval">Refresh interval (seconds)</label>
         <input id="refreshInterval" type="number" min="10" step="1" />
       </div>
-    </div>
-
-    <div class="row">
-      <label for="notifyReset">Notify when usage periods reset</label>
-      <select id="notifyReset">
-        <option value="true">Yes (default)</option>
-        <option value="false">No</option>
-      </select>
-      <div class="hint">Show notifications when 5-hour session or weekly usage windows reset</div>
-    </div>
-
-    <div class="row">
-      <label for="orgSelect">Organization</label>
-      <select id="orgSelect"></select>
-      <div class="hint">If empty, save a valid key and click Refresh.</div>
+      <div>
+        <label for="notifyReset">Notify when usage periods reset</label>
+        <select id="notifyReset">
+          <option value="true">Yes (default)</option>
+          <option value="false">No</option>
+        </select>
+      </div>
     </div>
 
     <div class="buttons">
@@ -130,9 +166,9 @@ function renderApp(root: HTMLElement): void {
     <div class="status" id="statusBox">Loading…</div>
 
     <div class="footer">
-      <div class="footer-tagline">Free and open source ❤️</div>
+      <div class="footer-tagline">Free and open source</div>
       <div class="footer-links">
-        <span class="footer-version">v1.0.0</span>
+        <span class="footer-version">v1.3.0</span>
         <span class="footer-separator">•</span>
         <a href="#" id="githubLink" class="footer-link">GitHub</a>
         <span class="footer-separator">•</span>
@@ -141,66 +177,56 @@ function renderApp(root: HTMLElement): void {
     </div>
   `;
 
-  const sessionKeyEl = el<HTMLInputElement>(root, '#sessionKey');
-  const rememberKeyEl = el<HTMLSelectElement>(root, '#rememberKey');
-  const refreshIntervalEl = el<HTMLInputElement>(root, '#refreshInterval');
-  const notifyResetEl = el<HTMLSelectElement>(root, '#notifyReset');
-  const orgSelectEl = el<HTMLSelectElement>(root, '#orgSelect');
-  const statusBoxEl = el<HTMLElement>(root, '#statusBox');
-  const storageHintEl = el<HTMLElement>(root, '#storageHint');
+  const elements: Elements = {
+    usageSourceEl: el<HTMLSelectElement>(root, '#usageSource'),
+    sessionKeyEl: el<HTMLInputElement>(root, '#sessionKey'),
+    rememberKeyEl: el<HTMLSelectElement>(root, '#rememberKey'),
+    claudeCliPathEl: el<HTMLInputElement>(root, '#claudeCliPath'),
+    refreshIntervalEl: el<HTMLInputElement>(root, '#refreshInterval'),
+    notifyResetEl: el<HTMLSelectElement>(root, '#notifyReset'),
+    orgSelectEl: el<HTMLSelectElement>(root, '#orgSelect'),
+    statusBoxEl: el<HTMLElement>(root, '#statusBox'),
+    storageHintEl: el<HTMLElement>(root, '#storageHint'),
+    webOnlySection: el<HTMLElement>(root, '#webOnlySection'),
+    cliOnlySection: el<HTMLElement>(root, '#cliOnlySection'),
+    forgetKeyButton: el<HTMLButtonElement>(root, '#forgetKey'),
+  };
 
   const refreshNowButton = el<HTMLButtonElement>(root, '#refreshNow');
-  const forgetKeyButton = el<HTMLButtonElement>(root, '#forgetKey');
   const saveButton = el<HTMLButtonElement>(root, '#save');
+
+  // Toggle visibility when source changes
+  elements.usageSourceEl.addEventListener('change', () => {
+    updateSourceVisibility(elements.usageSourceEl.value as UsageSource, elements);
+  });
 
   refreshNowButton.addEventListener('click', async () => {
     const result = await window.api.settings.refreshNow();
-    setResultError(statusBoxEl, result);
-    await loadState(
-      sessionKeyEl,
-      rememberKeyEl,
-      refreshIntervalEl,
-      notifyResetEl,
-      orgSelectEl,
-      statusBoxEl,
-      storageHintEl,
-    );
+    setResultError(elements.statusBoxEl, result);
+    await loadState(elements);
   });
 
-  forgetKeyButton.addEventListener('click', async () => {
+  elements.forgetKeyButton.addEventListener('click', async () => {
     const result = await window.api.settings.forgetKey();
-    setResultError(statusBoxEl, result);
-    await loadState(
-      sessionKeyEl,
-      rememberKeyEl,
-      refreshIntervalEl,
-      notifyResetEl,
-      orgSelectEl,
-      statusBoxEl,
-      storageHintEl,
-    );
+    setResultError(elements.statusBoxEl, result);
+    await loadState(elements);
   });
 
   saveButton.addEventListener('click', async () => {
+    const usageSource = elements.usageSourceEl.value as UsageSource;
     const payload = {
-      sessionKey: sessionKeyEl.value,
-      rememberSessionKey: rememberKeyEl.value === 'true',
-      refreshIntervalSeconds: Number(refreshIntervalEl.value || 60),
-      notifyOnUsageReset: notifyResetEl.value === 'true',
-      selectedOrganizationId: orgSelectEl.value || undefined,
+      sessionKey: elements.sessionKeyEl.value,
+      rememberSessionKey: elements.rememberKeyEl.value === 'true',
+      refreshIntervalSeconds: Number(elements.refreshIntervalEl.value || 60),
+      notifyOnUsageReset: elements.notifyResetEl.value === 'true',
+      selectedOrganizationId: elements.orgSelectEl.value || undefined,
+      usageSource,
+      claudeCliPath: elements.claudeCliPathEl.value || 'claude',
     };
     const result = await window.api.settings.save(payload);
-    setResultError(statusBoxEl, result);
+    setResultError(elements.statusBoxEl, result);
     if (result.ok) {
-      await loadState(
-        sessionKeyEl,
-        rememberKeyEl,
-        refreshIntervalEl,
-        notifyResetEl,
-        orgSelectEl,
-        statusBoxEl,
-        storageHintEl,
-      );
+      await loadState(elements);
     }
   });
 
@@ -218,18 +244,10 @@ function renderApp(root: HTMLElement): void {
     window.open('https://github.com/leonardocouy/claudometer/issues', '_blank');
   });
 
-  void loadState(
-    sessionKeyEl,
-    rememberKeyEl,
-    refreshIntervalEl,
-    notifyResetEl,
-    orgSelectEl,
-    statusBoxEl,
-    storageHintEl,
-  );
+  void loadState(elements);
 
   window.api.settings.onSnapshotUpdated((snapshot) => {
-    setStatus(statusBoxEl, renderSnapshot(snapshot));
+    setStatus(elements.statusBoxEl, renderSnapshot(snapshot));
   });
 }
 

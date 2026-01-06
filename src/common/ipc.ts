@@ -1,4 +1,4 @@
-import type { ClaudeOrganization, ClaudeUsageSnapshot } from './types.ts';
+import type { ClaudeOrganization, ClaudeUsageSnapshot, UsageSource } from './types.ts';
 
 export const ipcChannels = {
   settings: {
@@ -20,6 +20,8 @@ export type SettingsState = {
   selectedOrganizationId?: string;
   latestSnapshot: ClaudeUsageSnapshot | null;
   encryptionAvailable: boolean;
+  usageSource: UsageSource;
+  claudeCliPath: string;
 };
 
 export type SaveSettingsPayload = {
@@ -28,6 +30,8 @@ export type SaveSettingsPayload = {
   refreshIntervalSeconds: number;
   notifyOnUsageReset: boolean;
   selectedOrganizationId?: string;
+  usageSource: UsageSource;
+  claudeCliPath: string;
 };
 
 export type IpcErrorCode = 'VALIDATION' | 'NETWORK' | 'UNAUTHORIZED' | 'RATE_LIMITED' | 'UNKNOWN';
