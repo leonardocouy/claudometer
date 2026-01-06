@@ -136,6 +136,23 @@ async function fetchUsageFromApi(): Promise<
     }
 
     const data = await response.json();
+    console.log('[ClaudeOAuthAPI] Raw API response:', JSON.stringify(data, null, 2));
+
+    // Validate response structure
+    if (!data || typeof data !== 'object') {
+      return {
+        ok: false,
+        error: 'Invalid API response: not an object',
+      };
+    }
+
+    if (!data.five_hour || !data.seven_day || !data.seven_day_opus) {
+      return {
+        ok: false,
+        error: `Invalid API response structure. Missing required fields. Got: ${JSON.stringify(data)}`,
+      };
+    }
+
     return { ok: true, data };
   } catch (err) {
     if (err instanceof Error) {
