@@ -1,4 +1,8 @@
 import './styles.css';
+import { getVersion } from '@tauri-apps/api/app';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import type { IpcResult, SettingsState } from '../../common/ipc.ts';
 import type { ClaudeOrganization, ClaudeUsageSnapshot, UsageSource } from '../../common/types.ts';
 
@@ -7,6 +11,30 @@ const el = <T extends HTMLElement>(root: ParentNode, selector: string): T => {
   if (!node) throw new Error(`Missing element: ${selector}`);
   return node as T;
 };
+
+async function settingsGetState(): Promise<SettingsState> {
+  return await invoke<SettingsState>('settings_get_state');
+}
+
+async function settingsSave(payload: {
+  sessionKey?: string;
+  rememberSessionKey: boolean;
+  refreshIntervalSeconds: number;
+  notifyOnUsageReset: boolean;
+  autostartEnabled: boolean;
+  checkUpdatesOnStartup: boolean;
+  selectedOrganizationId?: string;
+}): Promise<IpcResult<null>> {
+  return await invoke<IpcResult<null>>('settings_save', { payload });
+}
+
+async function settingsForgetKey(): Promise<IpcResult<null>> {
+  return await invoke<IpcResult<null>>('settings_forget_key');
+}
+
+async function settingsRefreshNow(): Promise<IpcResult<null>> {
+  return await invoke<IpcResult<null>>('settings_refresh_now');
+}
 
 function renderOrgs(
   orgSelectEl: HTMLSelectElement,
@@ -129,40 +157,33 @@ function setResultError(statusBoxEl: HTMLElement, result: IpcResult<unknown>): v
   statusBoxEl.appendChild(errorDiv);
 }
 
-type Elements = {
-  usageSourceEl: HTMLSelectElement;
-  sessionKeyEl: HTMLInputElement;
-  rememberKeyEl: HTMLSelectElement;
-  refreshIntervalEl: HTMLInputElement;
-  notifyResetEl: HTMLSelectElement;
-  orgSelectEl: HTMLSelectElement;
-  statusBoxEl: HTMLElement;
-  storageHintEl: HTMLElement;
-  webOnlySection: HTMLElement;
-  cliOnlySection: HTMLElement;
-  forgetKeyButton: HTMLButtonElement;
-};
-
-function updateSourceVisibility(source: UsageSource, elements: Elements): void {
-  const isWebMode = source === 'web';
-  elements.webOnlySection.style.display = isWebMode ? '' : 'none';
-  elements.cliOnlySection.style.display = isWebMode ? 'none' : '';
-  elements.forgetKeyButton.style.display = isWebMode ? '' : 'none';
-}
-
-async function loadState(elements: Elements): Promise<SettingsState> {
-  const state = await window.api.settings.getState();
-  elements.usageSourceEl.value = state.usageSource;
-  elements.rememberKeyEl.value = String(Boolean(state.rememberSessionKey));
-  elements.refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
-  elements.notifyResetEl.value = String(state.notifyOnUsageReset ?? true);
-  renderOrgs(elements.orgSelectEl, state.organizations || [], state.selectedOrganizationId);
-  elements.storageHintEl.textContent = state.encryptionAvailable
+async function loadState(
+  sessionKeyEl: HTMLInputElement,
+  rememberKeyEl: HTMLSelectElement,
+  refreshIntervalEl: HTMLInputElement,
+  notifyResetEl: HTMLSelectElement,
+  autostartEl: HTMLSelectElement,
+  updatesStartupEl: HTMLSelectElement,
+  orgSelectEl: HTMLSelectElement,
+  statusBoxEl: HTMLElement,
+  storageHintEl: HTMLElement,
+): Promise<SettingsState> {
+  const state = await settingsGetState();
+  rememberKeyEl.value = String(Boolean(state.rememberSessionKey));
+  refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
+  notifyResetEl.value = String(state.notifyOnUsageReset ?? true);
+  autostartEl.value = String(state.autostartEnabled ?? false);
+  updatesStartupEl.value = String(state.checkUpdatesOnStartup ?? true);
+  renderOrgs(orgSelectEl, state.organizations || [], state.selectedOrganizationId);
+  rememberKeyEl.disabled = !state.keyringAvailable;
+  if (!state.keyringAvailable) {
+    rememberKeyEl.value = 'false';
+  }
+  storageHintEl.textContent = state.keyringAvailable
     ? ''
-    : 'Encrypted storage is unavailable on this system. "Remember" will be memory-only (no persistence across restarts).';
-  renderSnapshotToElement(elements.statusBoxEl, state.latestSnapshot);
-  elements.sessionKeyEl.value = '';
-  updateSourceVisibility(state.usageSource, elements);
+    : 'OS keychain/secret service is unavailable. “Remember session key” is disabled on this system.';
+  setStatus(statusBoxEl, renderSnapshot(state.latestSnapshot));
+  sessionKeyEl.value = '';
   return state;
 }
 
@@ -214,13 +235,38 @@ function renderApp(root: HTMLElement): void {
         <label for="refreshInterval">Refresh interval (seconds)</label>
         <input id="refreshInterval" type="number" min="10" step="1" />
       </div>
+    </div>
+
+    <div class="row">
+      <label for="notifyReset">Notify when usage periods reset</label>
+      <select id="notifyReset">
+        <option value="true">Yes (default)</option>
+        <option value="false">No</option>
+      </select>
+      <div class="hint">Show notifications when 5-hour session or weekly usage windows reset</div>
+    </div>
+
+    <div class="row inline">
       <div>
-        <label for="notifyReset">Notify when usage periods reset</label>
-        <select id="notifyReset">
-          <option value="true">Yes (default)</option>
+        <label for="autostart">Start on login</label>
+        <select id="autostart">
+          <option value="false">No</option>
+          <option value="true">Yes</option>
+        </select>
+      </div>
+      <div>
+        <label for="updatesStartup">Check for updates on startup</label>
+        <select id="updatesStartup">
+          <option value="true">Yes</option>
           <option value="false">No</option>
         </select>
       </div>
+    </div>
+
+    <div class="row">
+      <label for="orgSelect">Organization</label>
+      <select id="orgSelect"></select>
+      <div class="hint">If empty, save a valid key and click Refresh.</div>
     </div>
 
     <div class="buttons">
@@ -243,19 +289,15 @@ function renderApp(root: HTMLElement): void {
     </div>
   `;
 
-  const elements: Elements = {
-    usageSourceEl: el<HTMLSelectElement>(root, '#usageSource'),
-    sessionKeyEl: el<HTMLInputElement>(root, '#sessionKey'),
-    rememberKeyEl: el<HTMLSelectElement>(root, '#rememberKey'),
-    refreshIntervalEl: el<HTMLInputElement>(root, '#refreshInterval'),
-    notifyResetEl: el<HTMLSelectElement>(root, '#notifyReset'),
-    orgSelectEl: el<HTMLSelectElement>(root, '#orgSelect'),
-    statusBoxEl: el<HTMLElement>(root, '#statusBox'),
-    storageHintEl: el<HTMLElement>(root, '#storageHint'),
-    webOnlySection: el<HTMLElement>(root, '#webOnlySection'),
-    cliOnlySection: el<HTMLElement>(root, '#cliOnlySection'),
-    forgetKeyButton: el<HTMLButtonElement>(root, '#forgetKey'),
-  };
+  const sessionKeyEl = el<HTMLInputElement>(root, '#sessionKey');
+  const rememberKeyEl = el<HTMLSelectElement>(root, '#rememberKey');
+  const refreshIntervalEl = el<HTMLInputElement>(root, '#refreshInterval');
+  const notifyResetEl = el<HTMLSelectElement>(root, '#notifyReset');
+  const autostartEl = el<HTMLSelectElement>(root, '#autostart');
+  const updatesStartupEl = el<HTMLSelectElement>(root, '#updatesStartup');
+  const orgSelectEl = el<HTMLSelectElement>(root, '#orgSelect');
+  const statusBoxEl = el<HTMLElement>(root, '#statusBox');
+  const storageHintEl = el<HTMLElement>(root, '#storageHint');
 
   const refreshNowButton = el<HTMLButtonElement>(root, '#refreshNow');
   const saveButton = el<HTMLButtonElement>(root, '#save');
@@ -266,32 +308,62 @@ function renderApp(root: HTMLElement): void {
   });
 
   refreshNowButton.addEventListener('click', async () => {
-    const result = await window.api.settings.refreshNow();
-    setResultError(elements.statusBoxEl, result);
-    await loadState(elements);
+    const result = await settingsRefreshNow();
+    setResultError(statusBoxEl, result);
+    await loadState(
+      sessionKeyEl,
+      rememberKeyEl,
+      refreshIntervalEl,
+      notifyResetEl,
+      autostartEl,
+      updatesStartupEl,
+      orgSelectEl,
+      statusBoxEl,
+      storageHintEl,
+    );
   });
 
-  elements.forgetKeyButton.addEventListener('click', async () => {
-    const result = await window.api.settings.forgetKey();
-    setResultError(elements.statusBoxEl, result);
-    await loadState(elements);
+  forgetKeyButton.addEventListener('click', async () => {
+    const result = await settingsForgetKey();
+    setResultError(statusBoxEl, result);
+    await loadState(
+      sessionKeyEl,
+      rememberKeyEl,
+      refreshIntervalEl,
+      notifyResetEl,
+      autostartEl,
+      updatesStartupEl,
+      orgSelectEl,
+      statusBoxEl,
+      storageHintEl,
+    );
   });
 
   saveButton.addEventListener('click', async () => {
     const usageSource = elements.usageSourceEl.value as UsageSource;
     const payload = {
-      sessionKey: elements.sessionKeyEl.value,
-      rememberSessionKey: elements.rememberKeyEl.value === 'true',
-      refreshIntervalSeconds: Number(elements.refreshIntervalEl.value || 60),
-      notifyOnUsageReset: elements.notifyResetEl.value === 'true',
-      selectedOrganizationId: elements.orgSelectEl.value || undefined,
-      usageSource,
-      claudeCliPath: 'claude', // Fixed value, not user-configurable
+      sessionKey: sessionKeyEl.value || undefined,
+      rememberSessionKey: rememberKeyEl.value === 'true',
+      refreshIntervalSeconds: Number(refreshIntervalEl.value || 60),
+      notifyOnUsageReset: notifyResetEl.value === 'true',
+      autostartEnabled: autostartEl.value === 'true',
+      checkUpdatesOnStartup: updatesStartupEl.value === 'true',
+      selectedOrganizationId: orgSelectEl.value || undefined,
     };
-    const result = await window.api.settings.save(payload);
-    setResultError(elements.statusBoxEl, result);
+    const result = await settingsSave(payload);
+    setResultError(statusBoxEl, result);
     if (result.ok) {
-      await loadState(elements);
+      await loadState(
+        sessionKeyEl,
+        rememberKeyEl,
+        refreshIntervalEl,
+        notifyResetEl,
+        autostartEl,
+        updatesStartupEl,
+        orgSelectEl,
+        statusBoxEl,
+        storageHintEl,
+      );
     }
   });
 
@@ -301,19 +373,38 @@ function renderApp(root: HTMLElement): void {
 
   githubLink.addEventListener('click', (e) => {
     e.preventDefault();
-    window.open('https://github.com/leonardocouy/claudometer', '_blank');
+    void openUrl('https://github.com/leonardocouy/claudometer');
   });
 
   issuesLink.addEventListener('click', (e) => {
     e.preventDefault();
-    window.open('https://github.com/leonardocouy/claudometer/issues', '_blank');
+    void openUrl('https://github.com/leonardocouy/claudometer/issues');
   });
 
-  void loadState(elements);
+  void loadState(
+    sessionKeyEl,
+    rememberKeyEl,
+    refreshIntervalEl,
+    notifyResetEl,
+    autostartEl,
+    updatesStartupEl,
+    orgSelectEl,
+    statusBoxEl,
+    storageHintEl,
+  );
 
-  window.api.settings.onSnapshotUpdated((snapshot) => {
-    renderSnapshotToElement(elements.statusBoxEl, snapshot);
+  void listen<ClaudeUsageSnapshot | null>('snapshot:updated', (event) => {
+    setStatus(statusBoxEl, renderSnapshot(event.payload));
   });
+
+  const versionEl = root.querySelector('.footer-version');
+  if (versionEl) {
+    void getVersion()
+      .then((version) => {
+        versionEl.textContent = `v${version}`;
+      })
+      .catch(() => {});
+  }
 }
 
 renderApp(el<HTMLElement>(document, '#app'));

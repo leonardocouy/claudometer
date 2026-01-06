@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.os }}
+    name: Build (Tauri check) ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -28,23 +28,33 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build app
-        run: bun run make
-        env:
-          # Skip code signing for CI builds
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Install Linux build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libxss-dev \
+            pkg-config \
+            build-essential
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-${{ matrix.os }}
-          path: |
-            out/make/**/*.dmg
-            out/make/**/*.zip
-            out/make/**/*.deb
-            out/make/**/*.rpm
-            out/make/**/*.AppImage
-          retention-days: 7
+      - name: Build settings UI
+        run: bun run build:ui
+
+      - name: Cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml

@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for Claudometer windows",
+  "windows": ["settings"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "store:default",
+    "notification:default"
+  ]
+}
+

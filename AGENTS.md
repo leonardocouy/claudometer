@@ -17,7 +17,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 <!-- OPENSPEC:END -->
 
-# Claudometer (Electron)
+# Claudometer (Tauri)
 
 ## Project Overview
 
@@ -40,10 +40,10 @@ Both modes track the same metrics:
 
 | Layer | Technologies |
 |-------|--------------|
-| App | Electron + TypeScript |
+| App | Tauri v2 (Rust backend) + TypeScript UI |
 | Runtime | Bun |
-| Settings | `electron-store` (non-sensitive) |
-| Secrets | Electron `safeStorage` + `electron-store` ciphertext (session key) |
+| Settings | `tauri-plugin-store` (non-sensitive) |
+| Secrets | OS Keychain/Secret Service via `keyring` (session key) |
 | Formatting/Lint | Biome |
 | Tests | Lightweight unit tests for parsing (framework TBD; prefer minimal) |
 
@@ -51,12 +51,10 @@ Both modes track the same metrics:
 
 ```
 claudometer/
+├── src-tauri/             # Tauri backend (tray, polling, commands, bundling)
 ├── src/
-│   ├── main.ts            # Electron main process entry (tray-first)
-│   ├── main/              # Main process modules (tray, settings window, polling, IPC)
-│   ├── preload/           # Secure bridge (contextIsolation) exposing window.api
-│   ├── renderer/          # Vite renderers (settings window UI)
-│   └── common/            # Shared types + parsing + IPC contract
+│   ├── renderer/settings/ # Settings window UI (Tauri invoke + events)
+│   └── common/            # Shared UI types
 ├── assets/                # Tray icons
 ├── openspec/              # Specs and change proposals
 ├── package.json

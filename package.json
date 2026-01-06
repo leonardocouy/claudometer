@@ -2,34 +2,27 @@
   "name": "claudometer",
   "version": "1.5.0",
   "description": "Claudometer - Tray-first macOS + Linux app to monitor Claude web usage limits.",
-  "main": ".vite/build/main.js",
   "author": "Softaworks",
   "license": "MIT",
   "scripts": {
-    "start": "electron-forge start",
-    "start:no-sandbox": "electron-forge start -- --no-sandbox",
-    "package": "electron-forge package",
-    "make": "electron-forge make",
-    "publish": "electron-forge publish",
+    "dev": "bun run sync-versions && bunx tauri dev",
+    "build": "bun run sync-versions && bunx tauri build",
+    "dev:ui": "vite",
+    "build:ui": "vite build",
+    "sync-versions": "bun run scripts/sync-versions.ts",
     "typecheck": "tsc --noEmit",
     "check": "biome check .",
     "lint": "biome lint --write",
     "format": "biome format --write .",
-    "test": "bun test"
+    "test": "bun test && cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
-    "electron-store": "^11.0.2",
-    "zod": "^4.3.5"
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-opener": "^2.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.11",
-    "electron": "^39.2.7",
-    "@electron-forge/cli": "^7.10.2",
-    "@electron-forge/maker-deb": "^7.10.2",
-    "@electron-forge/maker-dmg": "^7.10.2",
-    "@electron-forge/maker-zip": "^7.10.2",
-    "@electron-forge/plugin-vite": "^7.10.2",
-    "@electron-forge/publisher-github": "^7.10.2",
+    "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^25.0.3",
     "bun-types": "^1.3.5",
     "typescript": "^5.9.3",

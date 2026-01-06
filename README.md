@@ -12,10 +12,8 @@ Download the latest release for your platform:
 
 | Platform | File |
 |----------|------|
-| macOS (Apple Silicon) | `Claudometer-x.x.x-arm64.dmg` |
-| macOS (Intel) | `Claudometer-x.x.x-x64.dmg` |
-| Linux (Debian/Ubuntu) | `claudometer_x.x.x_amd64.deb` |
-| Linux (Universal) | `claudometer-x.x.x-x64.zip` |
+| macOS (Apple Silicon / Intel) | `*.dmg` |
+| Linux (GNOME/KDE) | `*.AppImage` (recommended), `*.deb`, `*.rpm` |
 
 ### Build from Source
 
@@ -33,8 +31,8 @@ Download the latest release for your platform:
 
 3. **Build distributables**
    ```bash
-   bun run make
-   # Output in ./out/make/
+   bun run build
+   # Output in ./src-tauri/target/release/bundle/
    ```
 
 ## What This Does
@@ -92,7 +90,7 @@ Both modes track the same metrics and provide identical functionality. You can s
 
 3. **Run in development mode**
    ```bash
-   bun run start
+   bun run dev
    ```
 
 4. **Configure the app**
@@ -111,26 +109,23 @@ The tray will now show your Claude usage stats.
 | **Dual Authentication** | Web mode (session key) or CLI mode (OAuth API) - your choice |
 | **System Tray** | Lives in your menu bar/system tray - always visible |
 | **Real-time Updates** | Configurable polling (minimum 10 seconds) |
-| **Multi-organization** | Supports accounts with multiple Claude orgs (Web mode) |
-| **Secure Storage** | Web: Session key encrypted via `safeStorage`. CLI: OAuth tokens in `~/.claude/.credentials.json` |
+| **Multi-organization** | Supports accounts with multiple Claude orgs |
+| **Secure Storage** | Session key is stored only in OS Keychain/Secret Service (or kept in memory if “Remember” is disabled) |
 | **Status Indicators** | Tray icon changes color based on status (green=ok, red=unauthorized, orange=rate limited) |
 | **Auto-recovery** | Backs off automatically when rate-limited |
+| **Updater** | Signed auto-updates via `latest.json` + `.sig` assets in GitHub Releases |
 
 ## Project Structure
 
 ```
 claudometer/
+├── src-tauri/                     # Tauri (Rust) backend + bundling config
+│   ├── tauri.conf.json            # App + bundle + updater config
+│   ├── capabilities/              # Permission scopes
+│   └── src/                       # Rust modules (tray, polling, commands, settings)
 ├── src/
-│   ├── main.ts                    # Electron main process entry (tray-first)
-│   ├── main/                      # Main process modules
-│   │   ├── tray.ts                # System tray icon and menu
-│   │   ├── app-controller.ts      # Polling + state (single-flight setTimeout loop)
-│   │   ├── ipc/                   # ipcMain handlers (settings actions)
-│   │   ├── services/              # Claude API + settings + session key
-│   │   └── windows/               # Settings window + push events
-│   ├── preload/                   # contextBridge: exposes window.api
-│   ├── renderer/                  # Vite renderer(s) for windows (settings)
-│   └── common/                    # Shared types + parser + IPC contract
+│   ├── renderer/settings/         # Vite settings UI (Tauri invoke + events)
+│   └── common/                    # Shared types for the settings UI
 ├── assets/                        # Tray icons
 ├── openspec/                      # Change proposals & specs
 ├── package.json
@@ -150,10 +145,10 @@ claudometer/
              │
              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ Main Process (src/main.ts)                                 │
+│ Tauri backend (src-tauri/src)                               │
 │ • Initializes tray icon                                     │
-│ • Starts polling timer (configurable interval)              │
-│ • Routes to correct API service based on mode               │
+│ • Starts polling loop (configurable interval)               │
+│ • Coordinates data flow                                     │
 └────────────┬────────────────────────────────────────────────┘
              │
              ▼
@@ -191,9 +186,8 @@ claudometer/
 
 ### Data Flow
 
-**Web Mode:**
-1. **App starts** → Loads saved session key from encrypted storage (if available)
-2. **Every N seconds** → Polls Claude.ai Web API for usage data
+1. **App starts** → Loads session key from OS credential storage (if “Remember” is enabled)
+2. **Every N seconds** → Polls Claude API for usage data
 3. **On response** → Parses JSON, updates tray icon color and menu text
 4. **On error** → Updates tray to show error state, stops polling if unauthorized (401/403)
 
@@ -214,11 +208,11 @@ claudometer/
 
 | Command | Description |
 |---------|-------------|
-| `bun run start` | Run app in development mode with hot reload |
-| `bun run package` | Package app (no distributable) |
-| `bun run make` | Build distributables (.dmg, .deb, .zip) |
-| `bun run publish` | Build and publish to GitHub Releases |
-| `bun test` | Run unit tests |
+| `bun run dev` | Run Tauri app in development mode |
+| `bun run dev:ui` | Run settings UI only (Vite) |
+| `bun run build` | Build Tauri bundles (uses `tauri.conf.json`) |
+| `bun run build:ui` | Build settings UI only |
+| `bun run sync-versions` | Keep versions in sync across config files |
 | `bun run typecheck` | TypeScript type checking |
 | `bun run check` | Run Biome linter and formatter checks |
 | `bun run lint` | Auto-fix linting issues |
@@ -228,22 +222,36 @@ claudometer/
 
 | Layer | Technology |
 |-------|-----------|
-| App Framework | Electron 39 |
-| Build Tool | Electron Forge + Vite |
+| App Framework | Tauri v2 |
+| Build Tool | Tauri CLI + Vite |
 | Language | TypeScript 5.9 |
 | Runtime | Bun |
-| Settings Storage | `electron-store` (non-sensitive data) |
-| Secret Storage | Electron `safeStorage` + `electron-store` (encrypted ciphertext) |
+| Settings Storage | `tauri-plugin-store` (non-sensitive data) |
+| Secret Storage | OS Keychain / Secret Service (`keyring` crate) |
 | Linting/Formatting | Biome |
 | Testing | Bun's built-in test runner |
+
+## Manual Test Matrix
+
+Run these checks on:
+- macOS (Apple Silicon + Intel)
+- Linux (GNOME + KDE)
+
+Checklist:
+1. Tray starts with no windows; menu shows snapshot lines.
+2. “Open Settings…” creates/focuses the settings window.
+3. Saving a valid session key refreshes snapshot and updates tray.
+4. “Remember session key” persists across restart (Keychain / Secret Service).
+5. Disabling “Remember” keeps the key memory-only (does not persist across restart).
+6. Autostart toggle reflects system state after restart/login.
+7. “Check for Updates…” shows a result (up-to-date / update available / error).
 
 ## Security & Privacy
 
 ### Authentication Handling
 
-**Web Mode:**
-- **Encrypted at rest** (when available): Session key stored via Electron `safeStorage` and persisted only as ciphertext in `electron-store`
-- **If encryption unavailable**: Used in-memory for the current run only (no persistence)
+- **Stored only in OS credential storage** when “Remember” is enabled (Keychain / Secret Service)
+- **Memory-only** when “Remember” is disabled (no persistence)
 - **Never logged**: Session key is never included in logs, error messages, or telemetry
 - **Validation before storage**: Session key is validated against Claude API before being saved
 
@@ -268,11 +276,12 @@ claudometer/
 
 ### Local Storage
 
-The app stores these settings locally via `electron-store`:
-- **usageSource**: 'web' or 'cli' (which mode is active)
+The app stores these settings locally (non-sensitive) via `tauri-plugin-store`:
 - Refresh interval (seconds)
-- Selected organization ID (Web mode only)
-- "Remember session key" preference (Web mode only)
+- Selected organization ID
+- "Remember session key" preference
+ - Autostart preference
+ - Updater preferences
 
 ## Troubleshooting
 
@@ -301,9 +310,7 @@ Claude API is rate-limiting your requests:
 
 ### App won't start on Linux
 
-If the settings UI warns that encrypted storage is unavailable:
-1. The app will still work, but your session key will not persist across restarts
-2. You may need to re-enter the key after restarting
+If “Remember session key” is disabled in Settings, your session key will not persist across restarts.
 
 ### No organizations found
 
@@ -343,7 +350,7 @@ If you selected "Claude Code CLI" but see "No OAuth credentials found":
 - [ ] Desktop notifications when approaching usage limits
 - [ ] Historical usage graphs
 - [ ] Menu bar percentage display
-- [ ] Auto-update mechanism
+- [x] Auto-update mechanism
 
 ## Contributing
 
@@ -360,5 +367,4 @@ MIT
 ## Related Projects
 
 - [Claude API](https://docs.anthropic.com/claude/reference/getting-started-with-the-api) - Official API (different from web usage tracking)
-- [Electron](https://www.electronjs.org/) - Cross-platform desktop apps with web technologies
-- [electron-store](https://github.com/sindresorhus/electron-store) - Simple settings persistence
+- [Tauri](https://tauri.app/) - Lightweight desktop apps with Rust backend + system WebView

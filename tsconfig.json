@@ -12,6 +12,6 @@
     "rootDir": "src",
     "types": ["node", "bun-types"]
   },
-  "include": ["src/**/*"],
+  "include": ["src/common/**/*", "src/renderer/settings/**/*"],
   "exclude": ["node_modules", "dist"]
 }
