@@ -270,7 +270,7 @@ Checklist:
 - **Validation before storage**: Session key is validated against Claude API before being saved
 
 **CLI Mode:**
-- **Managed by Claude Code CLI**: OAuth tokens are stored locally by the CLI after `claude login`
+- **Managed by Claude Code CLI**: Uses your Claude Code CLI OAuth session
 - **Auto-refresh**: Tokens are refreshed automatically by the CLI
 - **Claudometer reads only**: App only reads credentials, never modifies them
 - **No persistence**: Claudometer doesn't store or cache OAuth tokens
