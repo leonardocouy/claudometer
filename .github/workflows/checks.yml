@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   checks:
-    name: TypeScript + Biome + Tests
+    name: TypeScript + Biome + Rust check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -26,8 +26,31 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libxss-dev \
+            pkg-config \
+            build-essential
 
       - name: TypeScript typecheck
         run: bun run typecheck
@@ -35,5 +58,11 @@ jobs:
       - name: Biome check
         run: bun run check
 
-      - name: Unit tests
-        run: bun test
+      - name: Build settings UI
+        run: bun run build:ui
+
+      - name: Rust format check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: Rust clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings

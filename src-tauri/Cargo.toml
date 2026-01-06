@@ -1,0 +1,31 @@
+[package]
+name = "claudometer"
+version = "1.5.0"
+description = "Claudometer - Tray-first macOS + Linux app to monitor Claude web usage limits."
+authors = ["Softaworks"]
+edition = "2021"
+
+[lib]
+name = "claudometer_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-opener = "2"
+tauri-plugin-store = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-notification = "2"
+
+keyring = { version = "3", default-features = false, features = ["apple-native", "sync-secret-service", "crypto-rust"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4.42", features = ["serde", "unstable-locales"] }
+thiserror = "2"
+time = { version = "0.3", features = ["formatting", "macros"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+urlencoding = "2"

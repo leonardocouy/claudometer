@@ -1,5 +1,9 @@
 import './styles.css';
-import type { IpcResult, SettingsState } from '../../common/ipc.ts';
+import { getVersion } from '@tauri-apps/api/app';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import type { IpcResult, SaveSettingsPayload, SettingsState } from '../../common/ipc.ts';
 import type { ClaudeOrganization, ClaudeUsageSnapshot, UsageSource } from '../../common/types.ts';
 
 const el = <T extends HTMLElement>(root: ParentNode, selector: string): T => {
@@ -7,6 +11,22 @@ const el = <T extends HTMLElement>(root: ParentNode, selector: string): T => {
   if (!node) throw new Error(`Missing element: ${selector}`);
   return node as T;
 };
+
+async function settingsGetState(): Promise<SettingsState> {
+  return await invoke<SettingsState>('settings_get_state');
+}
+
+async function settingsSave(payload: SaveSettingsPayload): Promise<IpcResult<null>> {
+  return await invoke<IpcResult<null>>('settings_save', { payload });
+}
+
+async function settingsForgetKey(): Promise<IpcResult<null>> {
+  return await invoke<IpcResult<null>>('settings_forget_key');
+}
+
+async function settingsRefreshNow(): Promise<IpcResult<null>> {
+  return await invoke<IpcResult<null>>('settings_refresh_now');
+}
 
 function renderOrgs(
   orgSelectEl: HTMLSelectElement,
@@ -28,80 +48,41 @@ function renderOrgs(
   orgSelectEl.value = selectedId || '';
 }
 
-function renderSnapshotToElement(
-  statusBoxEl: HTMLElement,
-  snapshot: ClaudeUsageSnapshot | null,
-): void {
-  // Clear previous content
-  statusBoxEl.textContent = '';
+const escapeHtml = (value: string): string =>
+  value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 
-  // Create status label
-  const statusLabel = document.createElement('strong');
-  statusLabel.textContent = 'Status: ';
-  statusBoxEl.appendChild(statusLabel);
-
-  if (!snapshot) {
-    statusBoxEl.appendChild(document.createTextNode('no data'));
-    return;
-  }
-
+function renderSnapshot(snapshot: ClaudeUsageSnapshot | null): string {
+  if (!snapshot) return '<strong>Status:</strong> no data';
   if (snapshot.status !== 'ok') {
-    // Status value
-    const statusSpan = document.createElement('span');
-    if (snapshot.status === 'error' || snapshot.status === 'unauthorized') {
-      statusSpan.className = 'error';
-    }
-    statusSpan.textContent = snapshot.status;
-    statusBoxEl.appendChild(statusSpan);
-
-    // Error message if present
-    if (snapshot.errorMessage) {
-      statusBoxEl.appendChild(document.createElement('br'));
-      const errorDiv = document.createElement('div');
-      errorDiv.className = 'error';
-      errorDiv.textContent = snapshot.errorMessage; // textContent prevents XSS
-      statusBoxEl.appendChild(errorDiv);
-    }
-
-    // Last updated
-    statusBoxEl.appendChild(document.createElement('br'));
-    const lastUpdated = document.createElement('div');
-    lastUpdated.textContent = `Last updated: ${snapshot.lastUpdatedAt}`;
-    statusBoxEl.appendChild(lastUpdated);
-    return;
+    const msg = snapshot.errorMessage
+      ? `<div class="error">${escapeHtml(snapshot.errorMessage)}</div>`
+      : '';
+    return `<strong>Status:</strong> ${snapshot.status}${msg}<div>Last updated: ${escapeHtml(snapshot.lastUpdatedAt)}</div>`;
   }
+  const models = snapshot.models.length
+    ? snapshot.models
+        .map((m) => {
+          const reset = m.resetsAt ? ` (resets ${new Date(m.resetsAt).toLocaleString()})` : '';
+          return `${escapeHtml(m.name)} (weekly): ${Math.round(m.percent)}%${reset}`;
+        })
+        .join('<br/>')
+    : 'Models (weekly): (none)';
+  return `
+    <strong>Status:</strong> ok<br/>
+    Session: ${Math.round(snapshot.sessionPercent)}%<br/>
+    Weekly: ${Math.round(snapshot.weeklyPercent)}%<br/>
+    ${models}<br/>
+    Last updated: ${escapeHtml(snapshot.lastUpdatedAt)}
+  `;
+}
 
-  // OK status - render usage data
-  statusBoxEl.appendChild(document.createTextNode('ok'));
-  statusBoxEl.appendChild(document.createElement('br'));
-
-  statusBoxEl.appendChild(
-    document.createTextNode(`Session: ${Math.round(snapshot.sessionPercent)}%`),
-  );
-  statusBoxEl.appendChild(document.createElement('br'));
-
-  statusBoxEl.appendChild(
-    document.createTextNode(`Weekly: ${Math.round(snapshot.weeklyPercent)}%`),
-  );
-  statusBoxEl.appendChild(document.createElement('br'));
-
-  // Display first model from array (settings UI shows single model for simplicity)
-  const firstModel = snapshot.models[0];
-  if (firstModel) {
-    const modelName = firstModel.name;
-    const modelPercent = Math.round(firstModel.percent);
-    let modelText = `${modelName} (weekly): ${modelPercent}%`;
-    if (firstModel.resetsAt) {
-      modelText += ` (resets ${new Date(firstModel.resetsAt).toLocaleString()})`;
-    }
-    statusBoxEl.appendChild(document.createTextNode(modelText));
-    statusBoxEl.appendChild(document.createElement('br'));
-  } else {
-    statusBoxEl.appendChild(document.createTextNode('Model (weekly): --%'));
-    statusBoxEl.appendChild(document.createElement('br'));
-  }
-
-  statusBoxEl.appendChild(document.createTextNode(`Last updated: ${snapshot.lastUpdatedAt}`));
+function setStatus(statusBoxEl: HTMLElement, html: string): void {
+  statusBoxEl.innerHTML = html;
 }
 
 function setResultError(statusBoxEl: HTMLElement, result: IpcResult<unknown>): void {
@@ -129,40 +110,42 @@ function setResultError(statusBoxEl: HTMLElement, result: IpcResult<unknown>): v
   statusBoxEl.appendChild(errorDiv);
 }
 
-type Elements = {
-  usageSourceEl: HTMLSelectElement;
-  sessionKeyEl: HTMLInputElement;
-  rememberKeyEl: HTMLSelectElement;
-  refreshIntervalEl: HTMLInputElement;
-  notifyResetEl: HTMLSelectElement;
-  orgSelectEl: HTMLSelectElement;
-  statusBoxEl: HTMLElement;
-  storageHintEl: HTMLElement;
-  webOnlySection: HTMLElement;
-  cliOnlySection: HTMLElement;
-  forgetKeyButton: HTMLButtonElement;
-};
+async function loadState(
+  usageSourceEl: HTMLSelectElement,
+  webOnlySectionEl: HTMLElement,
+  cliHintEl: HTMLElement,
+  sessionKeyEl: HTMLInputElement,
+  rememberKeyEl: HTMLSelectElement,
+  refreshIntervalEl: HTMLSelectElement,
+  notifyResetEl: HTMLSelectElement,
+  autostartEl: HTMLSelectElement,
+  updatesStartupEl: HTMLSelectElement,
+  orgSelectEl: HTMLSelectElement,
+  forgetKeyButton: HTMLButtonElement,
+  statusBoxEl: HTMLElement,
+  storageHintEl: HTMLElement,
+): Promise<SettingsState> {
+  const state = await settingsGetState();
+  usageSourceEl.value = state.usageSource;
+  webOnlySectionEl.toggleAttribute('hidden', state.usageSource !== 'web');
+  cliHintEl.toggleAttribute('hidden', state.usageSource !== 'cli');
+  forgetKeyButton.toggleAttribute('hidden', state.usageSource !== 'web');
 
-function updateSourceVisibility(source: UsageSource, elements: Elements): void {
-  const isWebMode = source === 'web';
-  elements.webOnlySection.style.display = isWebMode ? '' : 'none';
-  elements.cliOnlySection.style.display = isWebMode ? 'none' : '';
-  elements.forgetKeyButton.style.display = isWebMode ? '' : 'none';
-}
-
-async function loadState(elements: Elements): Promise<SettingsState> {
-  const state = await window.api.settings.getState();
-  elements.usageSourceEl.value = state.usageSource;
-  elements.rememberKeyEl.value = String(Boolean(state.rememberSessionKey));
-  elements.refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
-  elements.notifyResetEl.value = String(state.notifyOnUsageReset ?? true);
-  renderOrgs(elements.orgSelectEl, state.organizations || [], state.selectedOrganizationId);
-  elements.storageHintEl.textContent = state.encryptionAvailable
+  rememberKeyEl.value = String(Boolean(state.rememberSessionKey));
+  refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
+  notifyResetEl.value = String(state.notifyOnUsageReset ?? true);
+  autostartEl.value = String(state.autostartEnabled ?? false);
+  updatesStartupEl.value = String(state.checkUpdatesOnStartup ?? true);
+  renderOrgs(orgSelectEl, state.organizations || [], state.selectedOrganizationId);
+  rememberKeyEl.disabled = !state.keyringAvailable;
+  if (!state.keyringAvailable) {
+    rememberKeyEl.value = 'false';
+  }
+  storageHintEl.textContent = state.keyringAvailable
     ? ''
-    : 'Encrypted storage is unavailable on this system. "Remember" will be memory-only (no persistence across restarts).';
-  renderSnapshotToElement(elements.statusBoxEl, state.latestSnapshot);
-  elements.sessionKeyEl.value = '';
-  updateSourceVisibility(state.usageSource, elements);
+    : 'OS keychain/secret service is unavailable. “Remember session key” is disabled on this system.';
+  setStatus(statusBoxEl, renderSnapshot(state.latestSnapshot));
+  sessionKeyEl.value = '';
   return state;
 }
 
@@ -173,51 +156,70 @@ function renderApp(root: HTMLElement): void {
     <div class="row">
       <label for="usageSource">Usage data source</label>
       <select id="usageSource">
-        <option value="web">Claude Web (session key)</option>
+        <option value="web">Claude Web (session key cookie)</option>
         <option value="cli">Claude Code CLI</option>
       </select>
-      <div class="hint">Choose how to fetch usage data</div>
+      <div class="hint" id="cliHint" hidden>
+        CLI mode reads <code>~/.claude/.credentials.json</code>. If missing, run <code>claude login</code>.
+      </div>
     </div>
 
     <div id="webOnlySection">
-      <div class="row">
-        <label for="sessionKey">Claude session key (from claude.ai cookies)</label>
-        <input id="sessionKey" type="password" placeholder="sk-ant-sid01-..." autocomplete="off" />
-        <div class="hint">Never paste this anywhere else. It is stored only if "Remember" is enabled.</div>
-      </div>
-
-      <div class="row inline">
-        <div>
-          <label for="rememberKey">Remember session key (encrypted storage)</label>
-          <select id="rememberKey">
-            <option value="false">No (memory only)</option>
-            <option value="true">Yes</option>
-          </select>
-          <div class="hint" id="storageHint"></div>
-        </div>
-        <div>
-          <label for="orgSelect">Organization</label>
-          <select id="orgSelect"></select>
-          <div class="hint">If empty, save a valid key and click Refresh.</div>
-        </div>
-      </div>
+    <div class="row">
+      <label for="sessionKey">Claude session key (from claude.ai cookies)</label>
+      <input id="sessionKey" type="password" placeholder="sk-ant-sid01-..." autocomplete="off" />
+      <div class="hint">Never paste this anywhere else. It is stored only if "Remember" is enabled.</div>
     </div>
 
-    <div id="cliOnlySection" style="display: none;">
-      <div class="row">
-        <div class="hint">Uses OAuth credentials from ~/.claude/.credentials.json automatically.<br/>Make sure you've authenticated with Claude Code CLI first.</div>
-      </div>
+    <div class="row">
+      <label for="rememberKey">Remember session key</label>
+      <select id="rememberKey">
+        <option value="true">Yes (stored in OS keychain)</option>
+        <option value="false">No (memory only, lost on quit)</option>
+      </select>
+      <div class="hint" id="storageHint"></div>
+    </div>
+
+    <div class="row">
+      <label for="orgSelect">Organization</label>
+      <select id="orgSelect"></select>
+      <div class="hint">If empty, save a valid key and click Refresh.</div>
+    </div>
+    </div>
+
+    <div class="row">
+      <label for="refreshInterval">Refresh interval</label>
+      <select id="refreshInterval">
+        <option value="30">30 seconds</option>
+        <option value="60">1 minute (default)</option>
+        <option value="120">2 minutes</option>
+        <option value="300">5 minutes</option>
+        <option value="600">10 minutes</option>
+      </select>
+      <div class="hint">How often to check Claude usage</div>
+    </div>
+
+    <div class="row">
+      <label for="notifyReset">Notify when usage periods reset</label>
+      <select id="notifyReset">
+        <option value="true">Yes (default)</option>
+        <option value="false">No</option>
+      </select>
+      <div class="hint">Show notifications when 5-hour session or weekly usage windows reset</div>
     </div>
 
     <div class="row inline">
       <div>
-        <label for="refreshInterval">Refresh interval (seconds)</label>
-        <input id="refreshInterval" type="number" min="10" step="1" />
+        <label for="autostart">Start on login</label>
+        <select id="autostart">
+          <option value="false">No</option>
+          <option value="true">Yes</option>
+        </select>
       </div>
       <div>
-        <label for="notifyReset">Notify when usage periods reset</label>
-        <select id="notifyReset">
-          <option value="true">Yes (default)</option>
+        <label for="updatesStartup">Check for updates on startup</label>
+        <select id="updatesStartup">
+          <option value="true">Yes</option>
           <option value="false">No</option>
         </select>
       </div>
@@ -243,55 +245,100 @@ function renderApp(root: HTMLElement): void {
     </div>
   `;
 
-  const elements: Elements = {
-    usageSourceEl: el<HTMLSelectElement>(root, '#usageSource'),
-    sessionKeyEl: el<HTMLInputElement>(root, '#sessionKey'),
-    rememberKeyEl: el<HTMLSelectElement>(root, '#rememberKey'),
-    refreshIntervalEl: el<HTMLInputElement>(root, '#refreshInterval'),
-    notifyResetEl: el<HTMLSelectElement>(root, '#notifyReset'),
-    orgSelectEl: el<HTMLSelectElement>(root, '#orgSelect'),
-    statusBoxEl: el<HTMLElement>(root, '#statusBox'),
-    storageHintEl: el<HTMLElement>(root, '#storageHint'),
-    webOnlySection: el<HTMLElement>(root, '#webOnlySection'),
-    cliOnlySection: el<HTMLElement>(root, '#cliOnlySection'),
-    forgetKeyButton: el<HTMLButtonElement>(root, '#forgetKey'),
-  };
+  const usageSourceEl = el<HTMLSelectElement>(root, '#usageSource');
+  const webOnlySectionEl = el<HTMLElement>(root, '#webOnlySection');
+  const cliHintEl = el<HTMLElement>(root, '#cliHint');
+  const sessionKeyEl = el<HTMLInputElement>(root, '#sessionKey');
+  const rememberKeyEl = el<HTMLSelectElement>(root, '#rememberKey');
+  const refreshIntervalEl = el<HTMLSelectElement>(root, '#refreshInterval');
+  const notifyResetEl = el<HTMLSelectElement>(root, '#notifyReset');
+  const autostartEl = el<HTMLSelectElement>(root, '#autostart');
+  const updatesStartupEl = el<HTMLSelectElement>(root, '#updatesStartup');
+  const orgSelectEl = el<HTMLSelectElement>(root, '#orgSelect');
+  const statusBoxEl = el<HTMLElement>(root, '#statusBox');
+  const storageHintEl = el<HTMLElement>(root, '#storageHint');
 
   const refreshNowButton = el<HTMLButtonElement>(root, '#refreshNow');
+  const forgetKeyButton = el<HTMLButtonElement>(root, '#forgetKey');
   const saveButton = el<HTMLButtonElement>(root, '#save');
 
-  // Toggle visibility when source changes
-  elements.usageSourceEl.addEventListener('change', () => {
-    updateSourceVisibility(elements.usageSourceEl.value as UsageSource, elements);
+  usageSourceEl.addEventListener('change', () => {
+    const source = usageSourceEl.value as UsageSource;
+    webOnlySectionEl.toggleAttribute('hidden', source !== 'web');
+    cliHintEl.toggleAttribute('hidden', source !== 'cli');
+    forgetKeyButton.toggleAttribute('hidden', source !== 'web');
   });
 
   refreshNowButton.addEventListener('click', async () => {
-    const result = await window.api.settings.refreshNow();
-    setResultError(elements.statusBoxEl, result);
-    await loadState(elements);
+    const result = await settingsRefreshNow();
+    setResultError(statusBoxEl, result);
+    await loadState(
+      usageSourceEl,
+      webOnlySectionEl,
+      cliHintEl,
+      sessionKeyEl,
+      rememberKeyEl,
+      refreshIntervalEl,
+      notifyResetEl,
+      autostartEl,
+      updatesStartupEl,
+      orgSelectEl,
+      forgetKeyButton,
+      statusBoxEl,
+      storageHintEl,
+    );
   });
 
-  elements.forgetKeyButton.addEventListener('click', async () => {
-    const result = await window.api.settings.forgetKey();
-    setResultError(elements.statusBoxEl, result);
-    await loadState(elements);
+  forgetKeyButton.addEventListener('click', async () => {
+    const result = await settingsForgetKey();
+    setResultError(statusBoxEl, result);
+    await loadState(
+      usageSourceEl,
+      webOnlySectionEl,
+      cliHintEl,
+      sessionKeyEl,
+      rememberKeyEl,
+      refreshIntervalEl,
+      notifyResetEl,
+      autostartEl,
+      updatesStartupEl,
+      orgSelectEl,
+      forgetKeyButton,
+      statusBoxEl,
+      storageHintEl,
+    );
   });
 
   saveButton.addEventListener('click', async () => {
-    const usageSource = elements.usageSourceEl.value as UsageSource;
+    const usageSource = usageSourceEl.value as UsageSource;
     const payload = {
-      sessionKey: elements.sessionKeyEl.value,
-      rememberSessionKey: elements.rememberKeyEl.value === 'true',
-      refreshIntervalSeconds: Number(elements.refreshIntervalEl.value || 60),
-      notifyOnUsageReset: elements.notifyResetEl.value === 'true',
-      selectedOrganizationId: elements.orgSelectEl.value || undefined,
       usageSource,
-      claudeCliPath: 'claude', // Fixed value, not user-configurable
+      sessionKey: usageSource === 'web' ? sessionKeyEl.value || undefined : undefined,
+      rememberSessionKey: rememberKeyEl.value === 'true',
+      refreshIntervalSeconds: Number(refreshIntervalEl.value || 60),
+      notifyOnUsageReset: notifyResetEl.value === 'true',
+      autostartEnabled: autostartEl.value === 'true',
+      checkUpdatesOnStartup: updatesStartupEl.value === 'true',
+      selectedOrganizationId: usageSource === 'web' ? orgSelectEl.value || undefined : undefined,
     };
-    const result = await window.api.settings.save(payload);
-    setResultError(elements.statusBoxEl, result);
+    const result = await settingsSave(payload);
+    setResultError(statusBoxEl, result);
     if (result.ok) {
-      await loadState(elements);
+      await loadState(
+        usageSourceEl,
+        webOnlySectionEl,
+        cliHintEl,
+        sessionKeyEl,
+        rememberKeyEl,
+        refreshIntervalEl,
+        notifyResetEl,
+        autostartEl,
+        updatesStartupEl,
+        orgSelectEl,
+        forgetKeyButton,
+        statusBoxEl,
+        storageHintEl,
+      );
     }
   });
 
@@ -301,19 +348,42 @@ function renderApp(root: HTMLElement): void {
 
   githubLink.addEventListener('click', (e) => {
     e.preventDefault();
-    window.open('https://github.com/leonardocouy/claudometer', '_blank');
+    void openUrl('https://github.com/leonardocouy/claudometer');
   });
 
   issuesLink.addEventListener('click', (e) => {
     e.preventDefault();
-    window.open('https://github.com/leonardocouy/claudometer/issues', '_blank');
+    void openUrl('https://github.com/leonardocouy/claudometer/issues');
   });
 
-  void loadState(elements);
+  void loadState(
+    usageSourceEl,
+    webOnlySectionEl,
+    cliHintEl,
+    sessionKeyEl,
+    rememberKeyEl,
+    refreshIntervalEl,
+    notifyResetEl,
+    autostartEl,
+    updatesStartupEl,
+    orgSelectEl,
+    forgetKeyButton,
+    statusBoxEl,
+    storageHintEl,
+  );
 
-  window.api.settings.onSnapshotUpdated((snapshot) => {
-    renderSnapshotToElement(elements.statusBoxEl, snapshot);
+  void listen<ClaudeUsageSnapshot | null>('snapshot:updated', (event) => {
+    setStatus(statusBoxEl, renderSnapshot(event.payload));
   });
+
+  const versionEl = root.querySelector('.footer-version');
+  if (versionEl) {
+    void getVersion()
+      .then((version) => {
+        versionEl.textContent = `v${version}`;
+      })
+      .catch(() => {});
+  }
 }
 
 renderApp(el<HTMLElement>(document, '#app'));

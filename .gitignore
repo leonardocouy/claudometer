@@ -25,6 +25,10 @@ dist-electron/
 out/
 .bun-tmp/
 
+# Tauri/Rust
+src-tauri/gen/
+src-tauri/target/
+
 # IDE
 .vscode/
 .idea/
@@ -49,3 +53,6 @@ models/
 
 # Local settings
 .env
+
+# Local secrets (DO NOT COMMIT)
+.secrets/

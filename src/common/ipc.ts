@@ -13,28 +13,37 @@ export const ipcChannels = {
 } as const;
 
 export type SettingsState = {
+  usageSource: UsageSource;
   rememberSessionKey: boolean;
   refreshIntervalSeconds: number;
   notifyOnUsageReset: boolean;
+  autostartEnabled: boolean;
+  checkUpdatesOnStartup: boolean;
   organizations: ClaudeOrganization[];
   selectedOrganizationId?: string;
   latestSnapshot: ClaudeUsageSnapshot | null;
-  encryptionAvailable: boolean;
-  usageSource: UsageSource;
-  claudeCliPath: string;
+  keyringAvailable: boolean;
 };
 
 export type SaveSettingsPayload = {
-  sessionKey: string;
+  sessionKey?: string;
   rememberSessionKey: boolean;
   refreshIntervalSeconds: number;
   notifyOnUsageReset: boolean;
+  autostartEnabled: boolean;
+  checkUpdatesOnStartup: boolean;
   selectedOrganizationId?: string;
   usageSource: UsageSource;
-  claudeCliPath: string;
 };
 
-export type IpcErrorCode = 'VALIDATION' | 'NETWORK' | 'UNAUTHORIZED' | 'RATE_LIMITED' | 'UNKNOWN';
+export type IpcErrorCode =
+  | 'VALIDATION'
+  | 'NETWORK'
+  | 'UNAUTHORIZED'
+  | 'RATE_LIMITED'
+  | 'KEYRING'
+  | 'UPDATER'
+  | 'UNKNOWN';
 
 export type IpcError = { code: IpcErrorCode; message: string };
 

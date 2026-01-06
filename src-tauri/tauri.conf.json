@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Claudometer",
+  "version": "1.5.0",
+  "identifier": "com.softaworks.claudometer",
+  "build": {
+    "beforeDevCommand": "bun run dev:ui",
+    "beforeBuildCommand": "bun run build:ui",
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app",
+      "dmg",
+      "appimage",
+      "deb",
+      "rpm"
+    ],
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.icns"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/leonardocouy/claudometer/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQ1NDVFODk3QjQ1NkI5MjkKUldRcHVWYTBsK2hGMWR3eHJobDd2M3EwbGRFNkVIV3VWNHdTRUxIM1BJa29oQnk1ZTlMN0RTbXIK"
+    }
+  }
+}

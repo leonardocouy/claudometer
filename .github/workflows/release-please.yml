@@ -25,8 +25,8 @@ jobs:
         with:
           release-type: node
 
-  build-and-publish:
-    name: Build and Publish ${{ matrix.platform }}-${{ matrix.arch }}
+  build:
+    name: Build Bundles (${{ matrix.target }})
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     strategy:
@@ -34,14 +34,11 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            platform: darwin
-            arch: arm64
+            target: darwin-aarch64
           - os: macos-15-intel
-            platform: darwin
-            arch: x64
+            target: darwin-x86_64
           - os: ubuntu-latest
-            platform: linux
-            arch: x64
+            target: linux-x86_64
 
     runs-on: ${{ matrix.os }}
 
@@ -54,12 +51,47 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Install Linux build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libxss-dev \
+            libfuse2 \
+            patchelf \
+            pkg-config \
+            build-essential
+
+      - name: Install libfuse fallback (Ubuntu 24.04+)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y libfuse2t64 || true
+
+      - name: Enable AppImage extract-and-run (no FUSE)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
+
       # macOS: Import signing certificate (optional)
       - name: Import macOS signing certificate
-        if: matrix.platform == 'darwin' && vars.APPLE_CERTIFICATE != ''
+        if: startsWith(matrix.target, 'darwin') && vars.APPLE_CERTIFICATE != ''
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -72,11 +104,96 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
           rm certificate.p12
 
-      - name: Build and publish
-        run: bun run publish
+      - name: Build bundles
+        run: |
+          bun run sync-versions
+          if [[ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
+            export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          else
+            unset TAURI_SIGNING_PRIVATE_KEY_PASSWORD || true
+          fi
+          bunx tauri build --ci
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # macOS code signing and notarization (optional)
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # macOS notarization (optional)
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+      - name: Collect bundle artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p "bundle-artifacts/${{ matrix.target }}"
+          find "src-tauri/target/release/bundle" -type f \( \
+            -name '*.AppImage' -o -name '*.AppImage.sig' -o \
+            -name '*.deb' -o -name '*.deb.sig' -o \
+            -name '*.rpm' -o -name '*.rpm.sig' -o \
+            -name '*.dmg' -o -name '*.dmg.sig' -o \
+            -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' -o \
+            -name '*.sig' \
+          \) -print -exec cp -f {} "bundle-artifacts/${{ matrix.target }}/" \;
+
+      - name: Upload bundle artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.target }}
+          path: bundle-artifacts/${{ matrix.target }}
+          retention-days: 7
+
+  publish:
+    name: Publish Release Assets + latest.json
+    needs: [release-please, build]
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Download bundle artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate latest.json
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          linux_dir="artifacts/bundles-linux-x86_64"
+          mac_arm_dir="artifacts/bundles-darwin-aarch64"
+          mac_x64_dir="artifacts/bundles-darwin-x86_64"
+
+          linux_payload="$(ls -1 "$linux_dir"/*.AppImage | head -n 1)"
+          linux_sig="${linux_payload}.sig"
+
+          mac_arm_payload="$(ls -1 "$mac_arm_dir"/*.app.tar.gz | head -n 1)"
+          mac_arm_sig="${mac_arm_payload}.sig"
+
+          mac_x64_payload="$(ls -1 "$mac_x64_dir"/*.app.tar.gz | head -n 1)"
+          mac_x64_sig="${mac_x64_payload}.sig"
+
+          bun run scripts/generate-latest-json.ts \
+            --repo "$REPO" \
+            --tag "$TAG" \
+            --platform "linux-x86_64:${linux_payload}:${linux_sig}" \
+            --platform "darwin-aarch64:${mac_arm_payload}:${mac_arm_sig}" \
+            --platform "darwin-x86_64:${mac_x64_payload}:${mac_x64_sig}" \
+            --out latest.json
+
+      - name: Upload assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" artifacts/** --clobber
+          gh release upload "$TAG" latest.json --clobber
