@@ -71,6 +71,8 @@ export class AppController {
   }
 
   async getState(): Promise<SettingsState> {
+    const usageSource = this.settingsService.getUsageSource();
+    console.log('[appController] getState returning usageSource:', usageSource);
     return {
       rememberSessionKey: this.settingsService.getRememberSessionKey(),
       refreshIntervalSeconds: this.settingsService.getRefreshIntervalSeconds(),
@@ -79,7 +81,7 @@ export class AppController {
       selectedOrganizationId: this.settingsService.getSelectedOrganizationId(),
       latestSnapshot: this.latestSnapshot,
       encryptionAvailable: this.sessionKeyService.isEncryptionAvailable(),
-      usageSource: this.settingsService.getUsageSource(),
+      usageSource,
       claudeCliPath: this.settingsService.getClaudeCliPath(),
     };
   }
@@ -147,6 +149,7 @@ export class AppController {
       }
     }
 
+    console.log('[appController] Saving settings with usageSource:', usageSource);
     this.settingsService.setRefreshIntervalSeconds(refreshIntervalSeconds);
     if (!candidateSessionKey) {
       this.settingsService.setSelectedOrganizationId(parsed.selectedOrganizationId);
@@ -154,6 +157,7 @@ export class AppController {
     this.settingsService.setRememberSessionKey(Boolean(parsed.rememberSessionKey));
     this.settingsService.setNotifyOnUsageReset(Boolean(parsed.notifyOnUsageReset));
     this.settingsService.setUsageSource(usageSource);
+    console.log('[appController] After setUsageSource, checking value:', this.settingsService.getUsageSource());
     this.settingsService.setClaudeCliPath(claudeCliPath);
     this.claudeCliService.setCliPath(claudeCliPath);
 

@@ -82,7 +82,9 @@ function updateSourceVisibility(source: UsageSource, elements: Elements): void {
 
 async function loadState(elements: Elements): Promise<SettingsState> {
   const state = await window.api.settings.getState();
+  console.log('[loadState] Received state:', { usageSource: state.usageSource });
   elements.usageSourceEl.value = state.usageSource;
+  console.log('[loadState] Set select value to:', elements.usageSourceEl.value);
   elements.rememberKeyEl.value = String(Boolean(state.rememberSessionKey));
   elements.refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
   elements.notifyResetEl.value = String(state.notifyOnUsageReset ?? true);
@@ -209,6 +211,7 @@ function renderApp(root: HTMLElement): void {
 
   saveButton.addEventListener('click', async () => {
     const usageSource = elements.usageSourceEl.value as UsageSource;
+    console.log('[saveButton] Current select value:', usageSource);
     const payload = {
       sessionKey: elements.sessionKeyEl.value,
       rememberSessionKey: elements.rememberKeyEl.value === 'true',
@@ -218,7 +221,9 @@ function renderApp(root: HTMLElement): void {
       usageSource,
       claudeCliPath: 'claude', // Fixed value, not user-configurable
     };
+    console.log('[saveButton] Sending payload:', { usageSource: payload.usageSource });
     const result = await window.api.settings.save(payload);
+    console.log('[saveButton] Save result:', result);
     setResultError(elements.statusBoxEl, result);
     if (result.ok) {
       await loadState(elements);
