@@ -11,6 +11,7 @@ import type { ClaudeUsageSnapshot } from '../../common/types.ts';
 import { nowIso } from '../../common/types.ts';
 import { fetchWithTimeout } from '../../common/fetch-with-timeout.ts';
 import { sanitizeError } from '../../common/sanitization.ts';
+import { parseUtilizationPercent } from '../../common/parser.ts';
 
 /**
  * Error thrown when OAuth API requests fail
@@ -196,12 +197,13 @@ async function fetchUsageFromApi(accessToken: string): Promise<UsageApiResponse>
  * Convert API response to ClaudeUsageSnapshot
  */
 function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
-  // Session (5-hour) usage - API returns utilization as percentage directly
-  const sessionPercent = Math.round(data.five_hour?.utilization ?? 0);
+  // Session (5-hour) usage
+  // Use shared parseUtilizationPercent for consistent clamping/rounding across modes
+  const sessionPercent = parseUtilizationPercent(data.five_hour?.utilization);
   const sessionResetsAt = data.five_hour?.resets_at;
 
-  // Weekly (7-day) usage - API returns utilization as percentage directly
-  const weeklyPercent = Math.round(data.seven_day?.utilization ?? 0);
+  // Weekly (7-day) usage
+  const weeklyPercent = parseUtilizationPercent(data.seven_day?.utilization);
   const weeklyResetsAt = data.seven_day?.resets_at;
 
   // Model-specific weekly usage (fallback: Opus → Sonnet → 0)
@@ -211,11 +213,11 @@ function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
   let modelWeeklyResetsAt: string | undefined;
 
   if (data.seven_day_opus) {
-    modelWeeklyPercent = Math.round(data.seven_day_opus.utilization ?? 0);
+    modelWeeklyPercent = parseUtilizationPercent(data.seven_day_opus.utilization);
     modelWeeklyName = 'Opus';
     modelWeeklyResetsAt = data.seven_day_opus.resets_at;
   } else if (data.seven_day_sonnet) {
-    modelWeeklyPercent = Math.round(data.seven_day_sonnet.utilization ?? 0);
+    modelWeeklyPercent = parseUtilizationPercent(data.seven_day_sonnet.utilization);
     modelWeeklyName = 'Sonnet';
     modelWeeklyResetsAt = data.seven_day_sonnet.resets_at;
   }
