@@ -1,4 +1,6 @@
+import { fetchWithTimeout } from '../../common/fetch-with-timeout.ts';
 import { mapHttpStatusToUsageStatus, parseClaudeUsageFromJson } from '../../common/parser.ts';
+import { sanitizeString } from '../../common/sanitization.ts';
 import { type ClaudeOrganization, type ClaudeUsageSnapshot, nowIso } from '../../common/types.ts';
 
 const DEBUG_CLAUDE_WEB = process.env.CLAUDE_USAGE_DEBUG === '1';
@@ -25,14 +27,13 @@ class ClaudeWebRequestError extends Error {
   }
 }
 
+// Sanitization functions now use centralized sanitization utility
 function sanitizeErrorMessage(message: string): string {
-  return message.replaceAll(/sessionKey=[^;\s]+/gi, 'sessionKey=REDACTED');
+  return sanitizeString(message);
 }
 
 function redactBodyForLogs(body: string): string {
-  let redacted = body.replaceAll(/sessionKey=[^;\s]+/gi, 'sessionKey=REDACTED');
-  redacted = redacted.replaceAll(/sk-ant-sid01-[A-Za-z0-9_-]+/g, 'sk-ant-sid01-REDACTED');
-  return redacted;
+  return sanitizeString(body);
 }
 
 function buildHeaders(sessionKey: string): HeadersInit {
@@ -58,7 +59,7 @@ export function getClaudeWebRequestErrorStatus(
 
 export class ClaudeApiService {
   async fetchOrganizations(sessionKey: string): Promise<ClaudeOrganization[]> {
-    const response = await fetch('https://claude.ai/api/organizations', {
+    const response = await fetchWithTimeout('https://claude.ai/api/organizations', {
       method: 'GET',
       headers: buildHeaders(sessionKey),
     });
@@ -106,7 +107,7 @@ export class ClaudeApiService {
     const url = `https://claude.ai/api/organizations/${encodeURIComponent(organizationId)}/usage`;
 
     try {
-      const response = await fetch(url, {
+      const response = await fetchWithTimeout(url, {
         method: 'GET',
         headers: buildHeaders(sessionKey),
       });

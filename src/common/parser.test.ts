@@ -17,9 +17,10 @@ describe('parseClaudeUsageFromJson', () => {
     expect(snapshot.sessionResetsAt).toBe('2026-01-01T12:00:00.000Z');
     expect(snapshot.weeklyPercent).toBe(55);
     expect(snapshot.weeklyResetsAt).toBe('2026-01-08T12:00:00.000Z');
-    expect(snapshot.modelWeeklyName).toBe('Opus');
-    expect(snapshot.modelWeeklyPercent).toBe(9);
-    expect(snapshot.modelWeeklyResetsAt).toBe('2026-01-08T12:00:00.000Z');
+    expect(snapshot.models).toHaveLength(1);
+    expect(snapshot.models[0].name).toBe('Opus');
+    expect(snapshot.models[0].percent).toBe(9);
+    expect(snapshot.models[0].resetsAt).toBe('2026-01-08T12:00:00.000Z');
   });
 
   test('handles string utilization and missing fields', () => {
@@ -34,8 +35,9 @@ describe('parseClaudeUsageFromJson', () => {
     expect(snapshot.sessionPercent).toBeCloseTo(80.5);
     expect(snapshot.sessionResetsAt).toBeUndefined();
     expect(snapshot.weeklyPercent).toBe(0);
-    expect(snapshot.modelWeeklyName).toBe('Opus');
-    expect(snapshot.modelWeeklyPercent).toBe(10);
+    expect(snapshot.models).toHaveLength(1);
+    expect(snapshot.models[0].name).toBe('Opus');
+    expect(snapshot.models[0].percent).toBe(10);
   });
 
   test('clamps utilization to 0..100', () => {
@@ -49,11 +51,12 @@ describe('parseClaudeUsageFromJson', () => {
 
     expect(snapshot.sessionPercent).toBe(100);
     expect(snapshot.weeklyPercent).toBe(0);
-    expect(snapshot.modelWeeklyName).toBe('Opus');
-    expect(snapshot.modelWeeklyPercent).toBe(100);
+    expect(snapshot.models).toHaveLength(1);
+    expect(snapshot.models[0].name).toBe('Opus');
+    expect(snapshot.models[0].percent).toBe(100);
   });
 
-  test('prefers seven_day_sonnet when present', () => {
+  test('returns all models with Sonnet first when present', () => {
     const json = {
       five_hour: { utilization: 1 },
       seven_day: { utilization: 2 },
@@ -62,9 +65,14 @@ describe('parseClaudeUsageFromJson', () => {
     };
 
     const snapshot = parseClaudeUsageFromJson(json, 'org-4', '2026-01-01T00:00:00.000Z');
-    expect(snapshot.modelWeeklyName).toBe('Sonnet');
-    expect(snapshot.modelWeeklyPercent).toBe(20);
-    expect(snapshot.modelWeeklyResetsAt).toBe('2026-01-09T16:00:00.313070+00:00');
+    expect(snapshot.models).toHaveLength(2);
+    // Sonnet should be first
+    expect(snapshot.models[0].name).toBe('Sonnet');
+    expect(snapshot.models[0].percent).toBe(20);
+    expect(snapshot.models[0].resetsAt).toBe('2026-01-09T16:00:00.313070+00:00');
+    // Opus should be second
+    expect(snapshot.models[1].name).toBe('Opus');
+    expect(snapshot.models[1].percent).toBe(9);
   });
 });
 

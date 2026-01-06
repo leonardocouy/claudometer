@@ -47,6 +47,11 @@ Claudometer is an Electron-based tray application that monitors Claude web usage
 │ • Dependency wiring                                             │
 └────┬────────────────────────────────────────────────────────────┘
      │
+     ├─► AppController (src/main/app-controller.ts)
+     │   • Dual routing: routes to Web or CLI service based on usageSource
+     │   • refreshFromWeb() → ClaudeApiService
+     │   • refreshFromCli() → ClaudeCliService → ClaudeOAuthApiService
+     │
      ├─► TrayService (src/main/tray.ts)
      │   • Renders system tray icon
      │   • Builds context menu from usage snapshot
@@ -59,23 +64,105 @@ Claudometer is an Electron-based tray application that monitors Claude web usage
      │
      ├─► SettingsService (src/main/services/settings.ts)
      │   • Wraps electron-store for type-safe access
-     │   • Stores: refreshIntervalSeconds, selectedOrganizationId, rememberSessionKey
+     │   • Stores: refreshIntervalSeconds, selectedOrganizationId, rememberSessionKey, usageSource
      │
      ├─► SessionKeyService (src/main/services/session-key.ts)
-     │   • In-memory session key (always)
+     │   • In-memory session key (always) - WEB MODE ONLY
      │   • Encrypted persistence via Electron `safeStorage` (ciphertext in electron-store)
      │   • Builds "missing_key" snapshot when no key available
      │
-     ├─► ClaudeApiService (src/main/services/claude-api.ts)
+     ├─► ClaudeApiService (src/main/services/claude-api.ts) [WEB MODE]
      │   • HTTP requests to claude.ai/api/*
      │   • fetchOrganizations() → ClaudeOrganization[]
      │   • fetchUsageSnapshot() → ClaudeUsageSnapshot
      │
+     ├─► ClaudeOAuthApiService (src/main/services/claudeOAuthApi.ts) [CLI MODE]
+     │   • HTTP requests to api.anthropic.com/api/oauth/*
+     │   • fetchUsageSnapshot() → ClaudeUsageSnapshot
+     │   • Reads OAuth token from ~/.claude/.credentials.json
+     │   • No organization concept (single account)
+     │
      └─► Usage Parsing (src/common/parser.ts)
-         • parseClaudeUsageFromJson() → typed snapshot
+         • parseClaudeUsageFromJson() → typed snapshot (Web mode)
+         • OAuth API returns utilization directly (no parsing needed)
          • mapHttpStatusToUsageStatus() → error categorization
          • Smart model detection (seven_day_opus, seven_day_sonnet, etc.)
 ```
+
+## Dual Authentication Modes
+
+Claudometer supports two authentication modes that share the same `ClaudeUsageSnapshot` type but use different APIs:
+
+### Web Mode (Default)
+
+**Architecture:**
+- Uses Claude.ai web session cookie (`sessionKey`)
+- Fetches from `https://claude.ai/api/*` endpoints
+- Supports multiple organizations
+- Session key stored encrypted via `safeStorage`
+
+**Authentication Flow:**
+1. User extracts `sessionKey` from browser cookies
+2. Session key validated by fetching organizations
+3. Stored encrypted (or memory-only if encryption unavailable)
+4. Sent as `Cookie: sessionKey=...` header
+
+**Credential Location:**
+- Encrypted ciphertext in `electron-store` config file
+- Decrypted in-memory on app start
+
+### CLI Mode (OAuth)
+
+**Architecture:**
+- Uses OAuth tokens from Claude Code CLI
+- Fetches from `https://api.anthropic.com/api/oauth/*` endpoints
+- Single account (no organization concept)
+- Credentials managed by Claude CLI
+
+**Authentication Flow:**
+1. User authenticates via `claude` CLI (OAuth flow in browser)
+2. Claude CLI stores tokens in `~/.claude/.credentials.json`
+3. Claudometer reads credentials file (read-only, never modifies)
+4. Sent as `Authorization: Bearer <token>` header
+
+**Credential Location:**
+```json
+// ~/.claude/.credentials.json (managed by Claude CLI)
+{
+  "claudeAiOauth": {
+    "accessToken": "sk-ant-...",
+    "refreshToken": "sk-ant-...",
+    "expiresAt": 1234567890
+  }
+}
+```
+
+**Key Differences:**
+
+| Aspect | Web Mode | CLI Mode |
+|--------|----------|----------|
+| **Setup** | Manual cookie extraction | One-time `claude` auth |
+| **Token Management** | Manual refresh needed | Auto-refresh by CLI |
+| **API Endpoint** | `claude.ai/api/*` | `api.anthropic.com/api/oauth/*` |
+| **Organizations** | Multi-org support | Single account |
+| **Persistence** | App manages encryption | CLI manages file |
+| **Credential Format** | Session cookie string | OAuth access/refresh tokens |
+
+### Routing Logic
+
+The `AppController` routes to the correct service based on the `usageSource` setting:
+
+```typescript
+// Simplified routing logic
+if (usageSource === 'cli') {
+  return claudeCliService.fetchUsageSnapshot(); // → OAuth API
+} else {
+  // Fetch orgs, select org, then fetch usage
+  return claudeApiService.fetchUsageSnapshot(orgId); // → Web API
+}
+```
+
+Both services return the same `ClaudeUsageSnapshot` type, making them fully interchangeable from the UI perspective.
 
 ## Data Flow
 
@@ -85,12 +172,19 @@ Claudometer is an Electron-based tray application that monitors Claude web usage
 1. App starts
    ↓
 2. Load settings from electron-store
+   ├─ usageSource: 'web' | 'cli'
+   ├─ refreshIntervalSeconds
+   └─ other settings
    ↓
-3. Load session key from encrypted storage (if available)
+3. Load credentials based on mode
+   ├─ Web mode: Load session key from encrypted storage (if available)
+   └─ CLI mode: Nothing to load (will read ~/.claude/.credentials.json on demand)
    ↓
 4. Create TrayService
    ↓
 5. AppController.refreshNow() / start()
+   ├─ Routes to Web or CLI service based on usageSource
+   └─ Fetches initial snapshot
    ↓
 6. Start polling loop (single-flight setTimeout, interval from settings)
 ```
@@ -102,27 +196,46 @@ Claudometer is an Electron-based tray application that monitors Claude web usage
 │ AppController.refreshAll() - Every N seconds                 │
 └───┬─────────────────────────────────────────────────────────┘
     │
-    ├─► Check if session key exists
-    │   ├─ No → Show "missing_key" status, stop polling
-    │   └─ Yes → Continue
+    ├─► Check usageSource setting
+    │   ├─ 'web' → refreshFromWeb()
+    │   └─ 'cli' → refreshFromCli()
     │
-    ├─► Fetch organizations (if not cached or org changed)
-    │   ├─ Success → Cache organizations
-    │   └─ Error → Show error in tray, return
-    │
-    ├─► Resolve organization ID
-    │   ├─ Use stored org if valid
-    │   ├─ Otherwise use first org
-    │   └─ Store resolved org ID
-    │
-    ├─► Fetch usage snapshot
-    │   └─ Returns ClaudeUsageSnapshot (status: ok | error | unauthorized | rate_limited)
-    │
-    ├─► Update tray icon and menu
-    │
-    └─► Handle special statuses
-        ├─ unauthorized → Stop polling (key expired)
-        └─ rate_limited → Back off (~5 minutes with jitter), then retry
+    ├─────────────────────────┬─────────────────────────────────┐
+    │                         │                                 │
+    ▼ WEB MODE                ▼ CLI MODE                        │
+                                                                │
+    ├─► Check session key     ├─► Read ~/.claude/.credentials  │
+    │   ├─ No → "missing_key" │   ├─ Missing → "unauthorized"  │
+    │   └─ Yes → Continue      │   └─ Found → Continue          │
+    │                         │                                 │
+    ├─► Fetch organizations   ├─► (Skip - no org concept)      │
+    │   ├─ Success → Cache    │                                 │
+    │   └─ Error → Return     │                                 │
+    │                         │                                 │
+    ├─► Resolve org ID        │                                 │
+    │   ├─ Use stored org     │                                 │
+    │   └─ Or first org       │                                 │
+    │                         │                                 │
+    ├─► Fetch usage snapshot  ├─► Fetch usage snapshot         │
+    │   (claude.ai/api)       │   (api.anthropic.com/oauth)    │
+    │                         │                                 │
+    └─────────────────────────┴─────────────────────────────────┘
+                              │
+                              ▼
+                   ClaudeUsageSnapshot
+                   (unified format)
+                              │
+                              ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │ Update tray icon and menu                                │
+    └─────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │ Handle special statuses                                  │
+    ├─ unauthorized → Stop polling (credentials expired)       │
+    └─ rate_limited → Back off (~5 minutes with jitter), retry │
+    └─────────────────────────────────────────────────────────┘
 ```
 
 ### Settings Flow
@@ -176,7 +289,16 @@ When `safeStorage.isEncryptionAvailable()` is true, the session key is stored on
 
 ## API Integration
 
-### Claude Web API
+### Overview
+
+Claudometer integrates with **two different APIs** depending on the authentication mode:
+
+1. **Claude Web API** (`claude.ai/api/*`) - Used in Web mode
+2. **Anthropic OAuth API** (`api.anthropic.com/api/oauth/*`) - Used in CLI mode
+
+Both APIs return compatible usage data that maps to the same `ClaudeUsageSnapshot` type.
+
+### Claude Web API (Web Mode)
 
 The app integrates with Claude's web API (not the official Anthropic API). These are the same endpoints used by the claude.ai web interface.
 
@@ -273,6 +395,107 @@ type ClaudeUsageSnapshot = {
 }
 ```
 
+### Anthropic OAuth API (CLI Mode)
+
+The OAuth API provides usage data directly from Anthropic, accessed via OAuth tokens managed by Claude Code CLI.
+
+#### Authentication
+
+```http
+GET /api/oauth/usage
+Authorization: Bearer <access_token>
+anthropic-beta: oauth-2025-04-20
+```
+
+The `access_token` is read from `~/.claude/.credentials.json` (managed by Claude CLI).
+
+#### Credentials File Structure
+
+**Location**: `~/.claude/.credentials.json`
+
+**Format**:
+```json
+{
+  "claudeAiOauth": {
+    "accessToken": "sk-ant-...",
+    "refreshToken": "sk-ant-...",
+    "expiresAt": 1234567890
+  }
+}
+```
+
+**Management**:
+- Created by `claude` CLI during OAuth flow
+- Token refresh handled automatically by CLI
+- Claudometer only reads (never writes or modifies)
+- Multiple apps can share the same credentials file
+
+#### Endpoint
+
+##### GET /api/oauth/usage
+
+**Purpose**: Fetch current usage statistics for the authenticated account
+
+**Request**:
+```http
+GET https://api.anthropic.com/api/oauth/usage
+Authorization: Bearer sk-ant-...
+anthropic-beta: oauth-2025-04-20
+```
+
+**Response** (200 OK):
+```json
+{
+  "five_hour": {
+    "utilization": 9,
+    "resets_at": "2026-01-06T18:00:00.000Z"
+  },
+  "seven_day": {
+    "utilization": 38,
+    "resets_at": "2026-01-13T00:00:00.000Z"
+  },
+  "seven_day_opus": null,
+  "seven_day_sonnet": {
+    "utilization": 26,
+    "resets_at": "2026-01-13T00:00:00.000Z"
+  }
+}
+```
+
+**Key Differences from Web API**:
+- `utilization` is already a percentage (no units_used/units_limit)
+- Model metrics can be `null` (need fallback logic)
+- No organization concept (single account)
+- Simpler response structure
+
+**Parsed to**: Same `ClaudeUsageSnapshot` type as Web mode
+```typescript
+{
+  status: 'ok',
+  organizationId: 'oauth',  // Static identifier (no real org)
+  sessionPercent: 9,
+  weeklyPercent: 38,
+  modelWeeklyPercent: 26,
+  modelWeeklyName: 'Sonnet',
+  // ... other fields
+}
+```
+
+**Model Fallback Logic**:
+```typescript
+// Prefer Opus, fallback to Sonnet, then 0
+if (data.seven_day_opus) {
+  modelWeeklyPercent = data.seven_day_opus.utilization;
+  modelWeeklyName = 'Opus';
+} else if (data.seven_day_sonnet) {
+  modelWeeklyPercent = data.seven_day_sonnet.utilization;
+  modelWeeklyName = 'Sonnet';
+} else {
+  modelWeeklyPercent = 0;
+  modelWeeklyName = undefined;
+}
+```
+
 ### Error Handling in API Client
 
 HTTP status codes are mapped to usage statuses:
@@ -295,11 +518,13 @@ Error snapshots include the error message:
 
 ## Security Model
 
-### Session Key Protection
+### Credential Protection
 
-**Design goal**: Never expose the Claude session key outside secure storage.
+**Design goal**: Never expose authentication credentials outside their designated secure storage.
 
-#### Storage Strategy
+#### Web Mode - Session Key Protection
+
+**Storage Strategy:**
 
 | Platform | Enabled | Storage Location | Persistence |
 |----------|---------|------------------|-------------|
@@ -307,13 +532,30 @@ Error snapshots include the error message:
 | Linux | Depends on DE/keyring | `safeStorage` + `electron-store` ciphertext | Across app restarts (if encryption available) |
 | Any | If encryption unavailable | In-memory only | Until app exits |
 
-#### Security Measures
+**Security Measures:**
 
 1. **No logging**: Session key never appears in logs (sanitized via `sanitizeErrorMessage`)
 2. **No error messages**: Session key never included in error text shown to user
 3. **Redacted debug logs**: When `CLAUDE_USAGE_DEBUG=1`, session keys are redacted as `REDACTED`
 4. **Validation before storage**: Keys are tested against Claude API before saving
 5. **Password input**: UI uses `<input type="password">` to prevent shoulder-surfing
+
+#### CLI Mode - OAuth Token Protection
+
+**Storage Strategy:**
+
+- Tokens stored in `~/.claude/.credentials.json` by Claude CLI
+- Claudometer only **reads** the file (never writes or modifies)
+- File permissions: `600` (user read/write only)
+- Managed entirely by Claude CLI (auto-refresh)
+
+**Security Measures:**
+
+1. **Read-only access**: Claudometer never modifies OAuth credentials
+2. **No caching**: Tokens read fresh on every request
+3. **No logging**: OAuth tokens never logged (same redaction as session keys)
+4. **File permissions**: CLI creates file with restrictive permissions
+5. **Token refresh**: Handled automatically by Claude CLI (not Claudometer)
 
 #### Code Example: Redaction
 

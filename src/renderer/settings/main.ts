@@ -28,42 +28,111 @@ function renderOrgs(
   orgSelectEl.value = selectedId || '';
 }
 
-function renderSnapshot(snapshot: ClaudeUsageSnapshot | null): string {
-  if (!snapshot) return '<strong>Status:</strong> no data';
-  if (snapshot.status !== 'ok') {
-    const msg = snapshot.errorMessage ? `<div class="error">${snapshot.errorMessage}</div>` : '';
-    return `<strong>Status:</strong> ${snapshot.status}${msg}<div>Last updated: ${snapshot.lastUpdatedAt}</div>`;
-  }
-  return `
-    <strong>Status:</strong> ok<br/>
-    Session: ${Math.round(snapshot.sessionPercent)}%<br/>
-    Weekly: ${Math.round(snapshot.weeklyPercent)}%<br/>
-    ${snapshot.modelWeeklyName || 'Model'} (weekly): ${Math.round(snapshot.modelWeeklyPercent)}%${
-      snapshot.modelWeeklyResetsAt
-        ? ` (resets ${new Date(snapshot.modelWeeklyResetsAt).toLocaleString()})`
-        : ''
-    }<br/>
-    Last updated: ${snapshot.lastUpdatedAt}
-  `;
-}
+function renderSnapshotToElement(
+  statusBoxEl: HTMLElement,
+  snapshot: ClaudeUsageSnapshot | null,
+): void {
+  // Clear previous content
+  statusBoxEl.textContent = '';
 
-function setStatus(statusBoxEl: HTMLElement, html: string): void {
-  statusBoxEl.innerHTML = html;
+  // Create status label
+  const statusLabel = document.createElement('strong');
+  statusLabel.textContent = 'Status: ';
+  statusBoxEl.appendChild(statusLabel);
+
+  if (!snapshot) {
+    statusBoxEl.appendChild(document.createTextNode('no data'));
+    return;
+  }
+
+  if (snapshot.status !== 'ok') {
+    // Status value
+    const statusSpan = document.createElement('span');
+    if (snapshot.status === 'error' || snapshot.status === 'unauthorized') {
+      statusSpan.className = 'error';
+    }
+    statusSpan.textContent = snapshot.status;
+    statusBoxEl.appendChild(statusSpan);
+
+    // Error message if present
+    if (snapshot.errorMessage) {
+      statusBoxEl.appendChild(document.createElement('br'));
+      const errorDiv = document.createElement('div');
+      errorDiv.className = 'error';
+      errorDiv.textContent = snapshot.errorMessage; // textContent prevents XSS
+      statusBoxEl.appendChild(errorDiv);
+    }
+
+    // Last updated
+    statusBoxEl.appendChild(document.createElement('br'));
+    const lastUpdated = document.createElement('div');
+    lastUpdated.textContent = `Last updated: ${snapshot.lastUpdatedAt}`;
+    statusBoxEl.appendChild(lastUpdated);
+    return;
+  }
+
+  // OK status - render usage data
+  statusBoxEl.appendChild(document.createTextNode('ok'));
+  statusBoxEl.appendChild(document.createElement('br'));
+
+  statusBoxEl.appendChild(
+    document.createTextNode(`Session: ${Math.round(snapshot.sessionPercent)}%`),
+  );
+  statusBoxEl.appendChild(document.createElement('br'));
+
+  statusBoxEl.appendChild(
+    document.createTextNode(`Weekly: ${Math.round(snapshot.weeklyPercent)}%`),
+  );
+  statusBoxEl.appendChild(document.createElement('br'));
+
+  // Display first model from array (settings UI shows single model for simplicity)
+  const firstModel = snapshot.models[0];
+  if (firstModel) {
+    const modelName = firstModel.name;
+    const modelPercent = Math.round(firstModel.percent);
+    let modelText = `${modelName} (weekly): ${modelPercent}%`;
+    if (firstModel.resetsAt) {
+      modelText += ` (resets ${new Date(firstModel.resetsAt).toLocaleString()})`;
+    }
+    statusBoxEl.appendChild(document.createTextNode(modelText));
+    statusBoxEl.appendChild(document.createElement('br'));
+  } else {
+    statusBoxEl.appendChild(document.createTextNode('Model (weekly): --%'));
+    statusBoxEl.appendChild(document.createElement('br'));
+  }
+
+  statusBoxEl.appendChild(document.createTextNode(`Last updated: ${snapshot.lastUpdatedAt}`));
 }
 
 function setResultError(statusBoxEl: HTMLElement, result: IpcResult<unknown>): void {
   if (result.ok) return;
-  setStatus(
-    statusBoxEl,
-    `<strong>Status:</strong> <span class="error">error</span><div class="error">${result.error.message}</div>`,
-  );
+
+  // Clear previous content
+  statusBoxEl.textContent = '';
+
+  // Status label
+  const statusLabel = document.createElement('strong');
+  statusLabel.textContent = 'Status: ';
+  statusBoxEl.appendChild(statusLabel);
+
+  // Error status
+  const errorSpan = document.createElement('span');
+  errorSpan.className = 'error';
+  errorSpan.textContent = 'error';
+  statusBoxEl.appendChild(errorSpan);
+
+  // Error message
+  statusBoxEl.appendChild(document.createElement('br'));
+  const errorDiv = document.createElement('div');
+  errorDiv.className = 'error';
+  errorDiv.textContent = result.error.message; // textContent prevents XSS
+  statusBoxEl.appendChild(errorDiv);
 }
 
 type Elements = {
   usageSourceEl: HTMLSelectElement;
   sessionKeyEl: HTMLInputElement;
   rememberKeyEl: HTMLSelectElement;
-  claudeCliPathEl: HTMLInputElement;
   refreshIntervalEl: HTMLInputElement;
   notifyResetEl: HTMLSelectElement;
   orgSelectEl: HTMLSelectElement;
@@ -87,12 +156,11 @@ async function loadState(elements: Elements): Promise<SettingsState> {
   elements.rememberKeyEl.value = String(Boolean(state.rememberSessionKey));
   elements.refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
   elements.notifyResetEl.value = String(state.notifyOnUsageReset ?? true);
-  elements.claudeCliPathEl.value = state.claudeCliPath || 'claude';
   renderOrgs(elements.orgSelectEl, state.organizations || [], state.selectedOrganizationId);
   elements.storageHintEl.textContent = state.encryptionAvailable
     ? ''
     : 'Encrypted storage is unavailable on this system. "Remember" will be memory-only (no persistence across restarts).';
-  setStatus(elements.statusBoxEl, renderSnapshot(state.latestSnapshot));
+  renderSnapshotToElement(elements.statusBoxEl, state.latestSnapshot);
   elements.sessionKeyEl.value = '';
   updateSourceVisibility(state.usageSource, elements);
   return state;
@@ -106,7 +174,7 @@ function renderApp(root: HTMLElement): void {
       <label for="usageSource">Usage data source</label>
       <select id="usageSource">
         <option value="web">Claude Web (session key)</option>
-        <option value="cli">Claude Code CLI (claude /usage)</option>
+        <option value="cli">Claude Code CLI</option>
       </select>
       <div class="hint">Choose how to fetch usage data</div>
     </div>
@@ -137,9 +205,7 @@ function renderApp(root: HTMLElement): void {
 
     <div id="cliOnlySection" style="display: none;">
       <div class="row">
-        <label for="claudeCliPath">Claude CLI path</label>
-        <input id="claudeCliPath" type="text" placeholder="claude" autocomplete="off" />
-        <div class="hint">Path to the Claude Code CLI binary (default: claude)</div>
+        <div class="hint">Uses OAuth credentials from ~/.claude/.credentials.json automatically.<br/>Make sure you've authenticated with Claude Code CLI first.</div>
       </div>
     </div>
 
@@ -181,7 +247,6 @@ function renderApp(root: HTMLElement): void {
     usageSourceEl: el<HTMLSelectElement>(root, '#usageSource'),
     sessionKeyEl: el<HTMLInputElement>(root, '#sessionKey'),
     rememberKeyEl: el<HTMLSelectElement>(root, '#rememberKey'),
-    claudeCliPathEl: el<HTMLInputElement>(root, '#claudeCliPath'),
     refreshIntervalEl: el<HTMLInputElement>(root, '#refreshInterval'),
     notifyResetEl: el<HTMLSelectElement>(root, '#notifyReset'),
     orgSelectEl: el<HTMLSelectElement>(root, '#orgSelect'),
@@ -221,7 +286,7 @@ function renderApp(root: HTMLElement): void {
       notifyOnUsageReset: elements.notifyResetEl.value === 'true',
       selectedOrganizationId: elements.orgSelectEl.value || undefined,
       usageSource,
-      claudeCliPath: elements.claudeCliPathEl.value || 'claude',
+      claudeCliPath: 'claude', // Fixed value, not user-configurable
     };
     const result = await window.api.settings.save(payload);
     setResultError(elements.statusBoxEl, result);
@@ -247,7 +312,7 @@ function renderApp(root: HTMLElement): void {
   void loadState(elements);
 
   window.api.settings.onSnapshotUpdated((snapshot) => {
-    setStatus(elements.statusBoxEl, renderSnapshot(snapshot));
+    renderSnapshotToElement(elements.statusBoxEl, snapshot);
   });
 }
 
