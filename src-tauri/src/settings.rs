@@ -9,6 +9,7 @@ pub const KEY_REFRESH_INTERVAL_SECONDS: &str = "refreshIntervalSeconds";
 pub const KEY_SELECTED_ORGANIZATION_ID: &str = "selectedOrganizationId";
 pub const KEY_REMEMBER_SESSION_KEY: &str = "rememberSessionKey";
 pub const KEY_NOTIFY_ON_USAGE_RESET: &str = "notifyOnUsageReset";
+pub const KEY_USAGE_SOURCE: &str = "usageSource";
 pub const KEY_AUTOSTART_ENABLED: &str = "autostartEnabled";
 pub const KEY_CHECK_UPDATES_ON_STARTUP: &str = "checkUpdatesOnStartup";
 pub const KEY_SESSION_NEAR_LIMIT_NOTIFIED: &str = "sessionNearLimitNotifiedPeriodIdByOrg";
@@ -18,6 +19,7 @@ pub const KEY_WEEKLY_RESET_NOTIFIED: &str = "weeklyResetNotifiedPeriodIdByOrg";
 
 fn defaults() -> HashMap<String, JsonValue> {
   HashMap::from([
+    (KEY_USAGE_SOURCE.to_string(), json!("web")),
     (KEY_REFRESH_INTERVAL_SECONDS.to_string(), json!(60)),
     (KEY_SELECTED_ORGANIZATION_ID.to_string(), json!("")),
     (KEY_REMEMBER_SESSION_KEY.to_string(), json!(false)),
@@ -76,6 +78,10 @@ impl<R: Runtime> SettingsStore<R> {
     } else {
       Some(s.to_string())
     }
+  }
+
+  pub fn get_json(&self, key: &str) -> Option<JsonValue> {
+    self.store.get(key)
   }
 
   pub fn set(&self, key: &str, value: impl Into<JsonValue>) {

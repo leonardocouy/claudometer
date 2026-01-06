@@ -46,7 +46,7 @@ export function parseClaudeUsageFromJson(
   const weeklyPercent = parseUtilizationPercent(sevenDay?.utilization);
   const weeklyResetsAt = readString(sevenDay?.resets_at);
 
-  const models = readAllModelWeeklyUsage(root);
+  const models = readModelWeeklyUsages(root);
 
   return {
     status: 'ok',
@@ -76,47 +76,40 @@ function titleCase(value: string): string {
     .join(' ');
 }
 
-/**
- * Read all model-specific weekly usage data from API response
- * Returns an array of all models found, sorted by preference (Sonnet, Opus, others)
- */
-function readAllModelWeeklyUsage(root: JsonObject): Array<{
-  name: string;
-  percent: number;
-  resetsAt?: string;
-}> {
-  const models: Array<{ name: string; percent: number; resetsAt?: string }> = [];
-  const preferredOrder = ['seven_day_sonnet', 'seven_day_opus'];
-  const seen = new Set<string>();
+function readModelWeeklyUsages(
+  root: JsonObject,
+): { name: string; percent: number; resetsAt?: string }[] {
+  // The web API has historically returned `seven_day_opus`, but some accounts appear to get
+  // `seven_day_sonnet` (and potentially other `seven_day_*` keys). Prefer Sonnet if present.
+  const preferredKeys = ['seven_day_sonnet', 'seven_day_opus'];
 
-  // First, add preferred models in order if they exist
-  for (const key of preferredOrder) {
+  const out: { name: string; percent: number; resetsAt?: string }[] = [];
+  for (const key of preferredKeys) {
     const period = readObject(root[key]);
-    if (period) {
-      seen.add(key);
-      models.push({
-        name: titleCase(key.replace('seven_day_', '')),
-        percent: parseUtilizationPercent(period.utilization),
-        resetsAt: readString(period.resets_at),
-      });
-    }
+    if (!period) continue;
+    out.push({
+      percent: parseUtilizationPercent(period.utilization),
+      name: titleCase(key.replace('seven_day_', '')),
+      resetsAt: readString(period.resets_at),
+    });
   }
 
   // Then add any other seven_day_* models not already seen
   for (const [key, value] of Object.entries(root)) {
     if (!key.startsWith('seven_day_')) continue;
     if (key === 'seven_day') continue;
-    if (seen.has(key)) continue;
-
+    if (preferredKeys.includes(key)) continue;
     const period = readObject(value);
     if (!period) continue;
-
-    models.push({
+    const percent = parseUtilizationPercent(period.utilization);
+    if (percent === 0) continue;
+    out.push({
+      percent,
       name: titleCase(key.replace('seven_day_', '')),
       percent: parseUtilizationPercent(period.utilization),
       resetsAt: readString(period.resets_at),
     });
   }
 
-  return models;
+  return out;
 }

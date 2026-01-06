@@ -10,6 +10,21 @@ pub enum UsageStatus {
   MissingKey,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageSource {
+  Web,
+  Cli,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeModelUsage {
+  pub name: String,
+  pub percent: f64,
+  pub resets_at: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ClaudeUsageSnapshot {
@@ -24,12 +39,8 @@ pub enum ClaudeUsageSnapshot {
     weekly_percent: f64,
     #[serde(rename = "weeklyResetsAt")]
     weekly_resets_at: Option<String>,
-    #[serde(rename = "modelWeeklyPercent")]
-    model_weekly_percent: f64,
-    #[serde(rename = "modelWeeklyName")]
-    model_weekly_name: Option<String>,
-    #[serde(rename = "modelWeeklyResetsAt")]
-    model_weekly_resets_at: Option<String>,
+    #[serde(rename = "models")]
+    models: Vec<ClaudeModelUsage>,
     #[serde(rename = "lastUpdatedAt")]
     last_updated_at: String,
   },
@@ -124,6 +135,7 @@ impl<T> IpcResult<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsState {
+  pub usage_source: UsageSource,
   pub remember_session_key: bool,
   pub refresh_interval_seconds: u64,
   pub notify_on_usage_reset: bool,
@@ -138,6 +150,7 @@ pub struct SettingsState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveSettingsPayload {
+  pub usage_source: UsageSource,
   pub session_key: Option<String>,
   pub remember_session_key: bool,
   pub refresh_interval_seconds: u64,

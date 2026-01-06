@@ -1,0 +1,6 @@
+{
+  "five_hour": { "utilization": 12.3, "resets_at": "2026-01-01T12:00:00.000Z" },
+  "seven_day": { "utilization": 55, "resets_at": "2026-01-08T12:00:00.000Z" },
+  "seven_day_sonnet": { "utilization": 20, "resets_at": "2026-01-08T12:00:00.000Z" },
+  "seven_day_opus": { "utilization": 9, "resets_at": "2026-01-08T12:00:00.000Z" }
+}

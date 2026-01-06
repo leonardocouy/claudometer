@@ -1,6 +1,6 @@
 # Claudometer
 
-A tray-first desktop application for **macOS** and **Linux** that shows your Claude web usage limits in near real-time.
+A tray-first desktop application for **macOS** and **Linux** that shows your Claude usage limits in near real-time.
 
 ## Installation
 
@@ -85,27 +85,7 @@ Monitors your Claude usage and displays it in your system tray:
 - **Weekly utilization** - Your overall weekly Claude usage
 - **Model-specific weekly usage** - Weekly limits for specific models (Opus, Sonnet, etc.)
 
-The app polls Claude's API at configurable intervals and updates the tray icon color based on your usage status.
-
-## Authentication Modes
-
-Claudometer supports **two authentication modes** - choose the one that fits your workflow:
-
-### 🌐 Web Mode (Default)
-Uses your Claude web session cookie (`sessionKey`) to access Claude.ai's web API.
-- **Best for**: Regular Claude web users
-- **Setup**: Extract session key from browser cookies (see Quick Start)
-- **Pros**: Works immediately, no additional tools needed
-- **Cons**: Session keys expire periodically (need to refresh)
-
-### 🔧 CLI Mode (OAuth)
-Uses Claude Code CLI OAuth credentials to access the Anthropic API directly.
-- **Best for**: Claude Code CLI users, automation, long-lived sessions
-- **Setup**: Authenticate once with `claude` CLI (credentials stored in `~/.claude/.credentials.json`)
-- **Pros**: No manual session key extraction, tokens refresh automatically
-- **Cons**: Requires Claude Code CLI installed and authenticated
-
-Both modes track the same metrics and provide identical functionality. You can switch between modes anytime in Settings.
+The app polls usage at configurable intervals and updates the tray menu text.
 
 ## Quick Start (Development)
 
@@ -138,8 +118,9 @@ Both modes track the same metrics and provide identical functionality. You can s
 
 4. **Configure the app**
    - Click the tray icon → **"Open Settings..."**
-   - **Web mode**: Select "Claude Web" and paste your session key
-   - **CLI mode**: Select "Claude Code CLI" (no additional input needed)
+   - Select your usage source:
+     - **Claude Web**: paste your session key (cookie)
+     - **Claude Code CLI**: reads `~/.claude/.credentials.json` (run `claude login`)
    - Set refresh interval (default: 60s)
    - Save
 
@@ -152,9 +133,11 @@ The tray will now show your Claude usage stats.
 | **Dual Authentication** | Web mode (session key) or CLI mode (OAuth API) - your choice |
 | **System Tray** | Lives in your menu bar/system tray - always visible |
 | **Real-time Updates** | Configurable polling (minimum 10 seconds) |
+| **Usage Sources** | Claude Web (session key) or Claude Code CLI (OAuth credentials) |
 | **Multi-organization** | Supports accounts with multiple Claude orgs |
 | **Secure Storage** | Session key is stored only in OS Keychain/Secret Service (or kept in memory if “Remember” is disabled) |
-| **Status Indicators** | Tray icon changes color based on status (green=ok, red=unauthorized, orange=rate limited) |
+| **Status States** | Handles ok, unauthorized, rate limited, and missing key states |
+| **Notifications** | Near-limit alerts (>= 90%) and optional reset notifications (when `resets_at` changes) |
 | **Auto-recovery** | Backs off automatically when rate-limited |
 | **Updater** | Signed auto-updates via `latest.json` + `.sig` assets in GitHub Releases |
 
@@ -183,7 +166,7 @@ claudometer/
 │ User Actions                                                │
 │ • Launch app                                                │
 │ • Open settings                                             │
-│ • Select mode: Web (session key) OR CLI (OAuth)            │
+│ • Select usage source                                       │
 └────────────┬────────────────────────────────────────────────┘
              │
              ▼
@@ -196,49 +179,35 @@ claudometer/
              │
              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ AppController - Dual Routing                                │
-│ • Checks usageSource setting ('web' or 'cli')               │
-│ • Routes to appropriate service                             │
-└───────┬─────────────────────────────────────────────────────┘
-        │
-        ├──────────────────┬──────────────────────────────────┐
-        │                  │                                  │
-        ▼                  ▼                                  ▼
-┌──────────────┐  ┌──────────────┐               ┌──────────────┐
-│  WEB MODE    │  │  CLI MODE    │               │ Polling Loop │
-│              │  │              │               │ (Either Mode)│
-│ Claude Web   │  │ OAuth API    │               └──────────────┘
-│ API Client   │  │ Client       │                      │
-│              │  │              │                      ▼
-│ • GET /api/  │  │ • GET oauth/ │               1. Fetch usage
-│   orgs       │  │   usage      │               2. Parse JSON
-│ • GET /api/  │  │ • Bearer     │               3. Update tray
-│   orgs/:id/  │  │   token from │
-│   usage      │  │   ~/.claude/ │
-│ • Cookie:    │  │   .credentials│
-│   sessionKey │  │              │
-└──────────────┘  └──────────────┘
-        │                  │
-        └──────────┬───────┘
-                   ▼
-        ┌─────────────────────┐
-        │ ClaudeUsageSnapshot │
-        │ (unified format)    │
-        └─────────────────────┘
+│ Polling Loop                                                │
+│ 1. Resolve usage source (web/cli)                           │
+│ 2. Fetch usage snapshot                                     │
+│ 3. Parse JSON response                                      │
+│ 4. Update tray menu                                         │
+└────────────┬────────────────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Usage Provider                                              │
+│ • Web: claude.ai/api (Cookie sessionKey=...)                │
+│ • CLI: api.anthropic.com/api/oauth/usage (Bearer token)     │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow
 
-1. **App starts** → Loads session key from OS credential storage (if “Remember” is enabled)
-2. **Every N seconds** → Polls Claude API for usage data
-3. **On response** → Parses JSON, updates tray icon color and menu text
+1. **App starts** → Loads settings (including usage source)
+2. **Every N seconds** → Polls usage data for the selected source
+3. **On response** → Parses JSON and updates tray menu text
 4. **On error** → Updates tray to show error state, stops polling if unauthorized (401/403)
 
-**CLI Mode:**
-1. **App starts** → Reads OAuth credentials from `~/.claude/.credentials.json`
-2. **Every N seconds** → Calls Anthropic OAuth API with Bearer token
-3. **On response** → Parses JSON (same format), updates tray
-4. **On error** → Shows "re-authenticate with claude" if 401, continues polling otherwise
+### Debug (simulate notifications)
+
+Enable debug tray actions:
+```bash
+CLAUDOMETER_DEBUG=1 bun run dev
+```
+Then use the tray menu items under “Debug:” to simulate near-limit and reset notifications.
 
 ## Development
 
@@ -283,11 +252,13 @@ Run these checks on:
 Checklist:
 1. Tray starts with no windows; menu shows snapshot lines.
 2. “Open Settings…” creates/focuses the settings window.
-3. Saving a valid session key refreshes snapshot and updates tray.
-4. “Remember session key” persists across restart (Keychain / Secret Service).
-5. Disabling “Remember” keeps the key memory-only (does not persist across restart).
-6. Autostart toggle reflects system state after restart/login.
-7. “Check for Updates…” shows a result (up-to-date / update available / error).
+3. Web mode: saving a valid session key refreshes snapshot and updates tray.
+4. CLI mode: with `~/.claude/.credentials.json` present, refresh shows snapshot and updates tray.
+5. “Remember session key” (web only) persists across restart (Keychain / Secret Service).
+6. Disabling “Remember” keeps the key memory-only (does not persist across restart).
+7. Notifications: near-limit alerts (>= 90%) and reset notifications (when enabled).
+8. Autostart toggle reflects system state after restart/login.
+9. “Check for Updates…” shows a result (up-to-date / update available / error).
 
 ## Security & Privacy
 

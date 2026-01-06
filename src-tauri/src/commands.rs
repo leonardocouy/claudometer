@@ -1,19 +1,27 @@
-use crate::claude::{ClaudeApiClient, ClaudeWebErrorStatus};
+use crate::claude::{
+  read_cli_oauth_access_token, CliCredentialsError, ClaudeApiClient, ClaudeWebErrorStatus,
+};
 use crate::redact::redact_session_key;
 use crate::settings::{
   SettingsStore, KEY_AUTOSTART_ENABLED, KEY_CHECK_UPDATES_ON_STARTUP, KEY_NOTIFY_ON_USAGE_RESET,
   KEY_REFRESH_INTERVAL_SECONDS, KEY_REMEMBER_SESSION_KEY, KEY_SELECTED_ORGANIZATION_ID,
+  KEY_SESSION_NEAR_LIMIT_NOTIFIED, KEY_SESSION_RESET_NOTIFIED, KEY_USAGE_SOURCE,
+  KEY_WEEKLY_NEAR_LIMIT_NOTIFIED, KEY_WEEKLY_RESET_NOTIFIED,
 };
 use crate::tray::TrayUi;
 use crate::types::{
-  ClaudeOrganization, ClaudeUsageSnapshot, IpcError, IpcResult, SaveSettingsPayload, SettingsState,
-  UsageStatus,
+  ClaudeModelUsage, ClaudeOrganization, ClaudeUsageSnapshot, IpcError, IpcResult, SaveSettingsPayload,
+  SettingsState, UsageSource, UsageStatus,
 };
 use crate::updater;
+use crate::usage_alerts::{decide_near_limit_alerts, decide_usage_resets, DecideNearLimitAlertsParams, DecideUsageResetsParams};
 use crate::windows::open_settings_window;
+use serde_json::{Map as JsonMap, Value as JsonValue};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, EventTarget, Runtime, State};
 use tauri_plugin_autostart::ManagerExt as _;
+use tauri_plugin_notification::NotificationExt as _;
 use tokio::sync::{mpsc, oneshot, Mutex};
 
 const SNAPSHOT_EVENT: &str = "snapshot:updated";
@@ -144,6 +152,8 @@ pub struct AppState<R: Runtime> {
   pub claude: Arc<ClaudeApiClient>,
   pub organizations: Arc<Mutex<Vec<ClaudeOrganization>>>,
   pub latest_snapshot: Arc<Mutex<Option<ClaudeUsageSnapshot>>>,
+  pub reset_baseline_by_org: Arc<Mutex<HashMap<String, UsageResetBaseline>>>,
+  pub debug_override: Arc<Mutex<DebugOverride>>,
   pub tray: TrayUi<R>,
   pub refresh: RefreshBus,
 }
@@ -156,8 +166,64 @@ impl<R: Runtime> Clone for AppState<R> {
       claude: self.claude.clone(),
       organizations: self.organizations.clone(),
       latest_snapshot: self.latest_snapshot.clone(),
+      reset_baseline_by_org: self.reset_baseline_by_org.clone(),
+      debug_override: self.debug_override.clone(),
       tray: self.tray.clone(),
       refresh: self.refresh.clone(),
+    }
+  }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UsageResetBaseline {
+  pub session_period_id: Option<String>,
+  pub weekly_period_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DebugOverride {
+  pub active: bool,
+  pub organization_id: String,
+  pub session_percent: f64,
+  pub weekly_percent: f64,
+  pub session_resets_at: String,
+  pub weekly_resets_at: String,
+}
+
+impl Default for DebugOverride {
+  fn default() -> Self {
+    Self {
+      active: false,
+      organization_id: "debug".to_string(),
+      session_percent: 50.0,
+      weekly_percent: 50.0,
+      session_resets_at: "2099-01-01T05:00:00.000Z".to_string(),
+      weekly_resets_at: "2099-01-08T00:00:00.000Z".to_string(),
+    }
+  }
+}
+
+impl DebugOverride {
+  pub fn snapshot(&self) -> ClaudeUsageSnapshot {
+    ClaudeUsageSnapshot::Ok {
+      organization_id: self.organization_id.clone(),
+      session_percent: self.session_percent,
+      session_resets_at: Some(self.session_resets_at.clone()),
+      weekly_percent: self.weekly_percent,
+      weekly_resets_at: Some(self.weekly_resets_at.clone()),
+      models: vec![
+        ClaudeModelUsage {
+          name: "Sonnet".to_string(),
+          percent: self.weekly_percent,
+          resets_at: Some(self.weekly_resets_at.clone()),
+        },
+        ClaudeModelUsage {
+          name: "Opus".to_string(),
+          percent: (self.weekly_percent * 0.7).clamp(0.0, 100.0),
+          resets_at: Some(self.weekly_resets_at.clone()),
+        },
+      ],
+      last_updated_at: now_iso(),
     }
   }
 }
@@ -179,6 +245,13 @@ impl<R: Runtime> AppState<R> {
 
   pub fn selected_org_id(&self) -> Option<String> {
     self.settings.get_string(KEY_SELECTED_ORGANIZATION_ID)
+  }
+
+  pub fn usage_source(&self) -> UsageSource {
+    match self.settings.get_string(KEY_USAGE_SOURCE).as_deref() {
+      Some("cli") => UsageSource::Cli,
+      _ => UsageSource::Web,
+    }
   }
 }
 
@@ -217,6 +290,152 @@ fn error_snapshot(message: &str) -> ClaudeUsageSnapshot {
     organization_id: None,
     last_updated_at: now_iso(),
     error_message: Some(message.to_string()),
+  }
+}
+
+fn read_period_id_map<R: Runtime>(settings: &SettingsStore<R>, key: &str) -> JsonMap<String, JsonValue> {
+  match settings.get_json(key) {
+    Some(JsonValue::Object(map)) => map,
+    _ => JsonMap::new(),
+  }
+}
+
+fn map_get_org_period_id(map: &JsonMap<String, JsonValue>, org_id: &str) -> Option<String> {
+  map.get(org_id).and_then(|v| v.as_str()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+fn map_set_org_period_id(map: &mut JsonMap<String, JsonValue>, org_id: &str, period_id: &str) {
+  map.insert(org_id.to_string(), JsonValue::String(period_id.to_string()));
+}
+
+async fn notify<R: Runtime>(app: &AppHandle<R>, body: &str) {
+  let _ = app
+    .notification()
+    .builder()
+    .title("Claudometer")
+    .body(body)
+    .show();
+}
+
+async fn maybe_notify_usage<R: Runtime>(
+  app: &AppHandle<R>,
+  state: &AppState<R>,
+  previous: Option<&ClaudeUsageSnapshot>,
+  current: &ClaudeUsageSnapshot,
+) {
+  let ClaudeUsageSnapshot::Ok {
+    organization_id,
+    session_percent,
+    session_resets_at,
+    weekly_percent,
+    weekly_resets_at,
+    ..
+  } = current
+  else {
+    return;
+  };
+
+  let (prev_session, prev_weekly) = match previous {
+    Some(ClaudeUsageSnapshot::Ok {
+      organization_id: prev_org,
+      session_percent: ps,
+      weekly_percent: pw,
+      ..
+    }) if prev_org == organization_id => (Some(*ps), Some(*pw)),
+    _ => (None, None),
+  };
+
+  // Near-limit (>= 90%) once per period per org.
+  let session_map = read_period_id_map(&state.settings, KEY_SESSION_NEAR_LIMIT_NOTIFIED);
+  let weekly_map = read_period_id_map(&state.settings, KEY_WEEKLY_NEAR_LIMIT_NOTIFIED);
+  let last_session_notified = map_get_org_period_id(&session_map, organization_id);
+  let last_weekly_notified = map_get_org_period_id(&weekly_map, organization_id);
+
+  let decision = decide_near_limit_alerts(DecideNearLimitAlertsParams {
+    current_session_percent: *session_percent,
+    current_weekly_percent: *weekly_percent,
+    current_session_resets_at: session_resets_at.as_deref(),
+    current_weekly_resets_at: weekly_resets_at.as_deref(),
+    previous_session_percent: prev_session,
+    previous_weekly_percent: prev_weekly,
+    last_notified_session_period_id: last_session_notified.as_deref(),
+    last_notified_weekly_period_id: last_weekly_notified.as_deref(),
+  });
+
+  if let Some(session_period_id) = decision.session_period_id.as_deref() {
+    notify(app, "Session usage is near the limit (>= 90%).").await;
+    let mut map = session_map;
+    map_set_org_period_id(&mut map, organization_id, session_period_id);
+    state
+      .settings
+      .set(KEY_SESSION_NEAR_LIMIT_NOTIFIED, JsonValue::Object(map));
+  }
+
+  if let Some(weekly_period_id) = decision.weekly_period_id.as_deref() {
+    notify(app, "Weekly usage is near the limit (>= 90%).").await;
+    let mut map = weekly_map;
+    map_set_org_period_id(&mut map, organization_id, weekly_period_id);
+    state
+      .settings
+      .set(KEY_WEEKLY_NEAR_LIMIT_NOTIFIED, JsonValue::Object(map));
+  }
+
+  // Reset notifications (gated; no first-baseline notification).
+  let notify_on_usage_reset = state.settings.get_bool(KEY_NOTIFY_ON_USAGE_RESET, true);
+
+  let (last_seen_session, last_seen_weekly) = {
+    let guard = state.reset_baseline_by_org.lock().await;
+    let baseline = guard.get(organization_id);
+    (
+      baseline.and_then(|b| b.session_period_id.clone()),
+      baseline.and_then(|b| b.weekly_period_id.clone()),
+    )
+  };
+
+  let session_reset_map = read_period_id_map(&state.settings, KEY_SESSION_RESET_NOTIFIED);
+  let weekly_reset_map = read_period_id_map(&state.settings, KEY_WEEKLY_RESET_NOTIFIED);
+  let last_session_reset_notified = map_get_org_period_id(&session_reset_map, organization_id);
+  let last_weekly_reset_notified = map_get_org_period_id(&weekly_reset_map, organization_id);
+
+  let reset_decision = decide_usage_resets(DecideUsageResetsParams {
+    current_session_resets_at: session_resets_at.as_deref(),
+    current_weekly_resets_at: weekly_resets_at.as_deref(),
+    last_seen_session_period_id: last_seen_session.as_deref(),
+    last_seen_weekly_period_id: last_seen_weekly.as_deref(),
+    last_notified_session_reset_period_id: last_session_reset_notified.as_deref(),
+    last_notified_weekly_reset_period_id: last_weekly_reset_notified.as_deref(),
+  });
+
+  if notify_on_usage_reset {
+    if let Some(session_period_id) = reset_decision.session_reset_period_id.as_deref() {
+      notify(app, "Session usage window has reset.").await;
+      let mut map = session_reset_map;
+      map_set_org_period_id(&mut map, organization_id, session_period_id);
+      state
+        .settings
+        .set(KEY_SESSION_RESET_NOTIFIED, JsonValue::Object(map));
+    }
+
+    if let Some(weekly_period_id) = reset_decision.weekly_reset_period_id.as_deref() {
+      notify(app, "Weekly usage window has reset.").await;
+      let mut map = weekly_reset_map;
+      map_set_org_period_id(&mut map, organization_id, weekly_period_id);
+      state
+        .settings
+        .set(KEY_WEEKLY_RESET_NOTIFIED, JsonValue::Object(map));
+    }
+  }
+
+  // Always update baseline after processing, so first observation never notifies.
+  {
+    let mut guard = state.reset_baseline_by_org.lock().await;
+    let entry = guard.entry(organization_id.clone()).or_default();
+    if let Some(s) = session_resets_at.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+      entry.session_period_id = Some(s.to_string());
+    }
+    if let Some(s) = weekly_resets_at.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+      entry.weekly_period_id = Some(s.to_string());
+    }
   }
 }
 
@@ -262,51 +481,106 @@ async fn resolve_organization_id<R: Runtime>(
 }
 
 async fn refresh_once<R: Runtime>(app: &AppHandle<R>, state: &AppState<R>) -> IpcResult<()> {
-  let remember = state.remember_session_key();
+  let previous = state.latest_snapshot.lock().await.clone();
 
-  let session_key = match state.session_key.get_current(remember).await {
-    Ok(Some(k)) => k,
-    Ok(None) => {
-      state.update_snapshot(app, Some(missing_key_snapshot())).await;
-      return IpcResult::ok(());
-    }
-    Err(()) => {
-      state.update_snapshot(app, Some(missing_key_snapshot())).await;
-      return IpcResult::err("KEYRING", "OS keychain/secret service is unavailable.");
-    }
+  let debug_snapshot = {
+    let guard = state.debug_override.lock().await;
+    guard.active.then(|| guard.snapshot())
   };
+  if let Some(snapshot) = debug_snapshot {
+    maybe_notify_usage(app, state, previous.as_ref(), &snapshot).await;
+    state.update_snapshot(app, Some(snapshot)).await;
+    return IpcResult::ok(());
+  }
 
-  let org_id = match resolve_organization_id(state, &session_key).await {
-    Ok(Some(id)) => id,
-    Ok(None) => {
-      state
-        .update_snapshot(app, Some(error_snapshot("No organizations found.")))
-        .await;
-      return IpcResult::ok(());
-    }
-    Err(ClaudeWebErrorStatus::Unauthorized) => {
-      state
-        .update_snapshot(app, Some(unauthorized_snapshot("Unauthorized.")))
-        .await;
-      return IpcResult::ok(());
-    }
-    Err(ClaudeWebErrorStatus::RateLimited) => {
-      state
-        .update_snapshot(app, Some(rate_limited_snapshot("Rate limited.")))
-        .await;
-      return IpcResult::ok(());
-    }
-    Err(ClaudeWebErrorStatus::Error) => {
-      state
-        .update_snapshot(app, Some(error_snapshot("Failed to fetch organizations.")))
-        .await;
-      return IpcResult::ok(());
-    }
-  };
+  match state.usage_source() {
+    UsageSource::Web => {
+      let remember = state.remember_session_key();
 
-  let snapshot = state.claude.fetch_usage_snapshot(&session_key, &org_id).await;
-  state.update_snapshot(app, Some(snapshot)).await;
-  IpcResult::ok(())
+      let session_key = match state.session_key.get_current(remember).await {
+        Ok(Some(k)) => k,
+        Ok(None) => {
+          state.update_snapshot(app, Some(missing_key_snapshot())).await;
+          return IpcResult::ok(());
+        }
+        Err(()) => {
+          state.update_snapshot(app, Some(missing_key_snapshot())).await;
+          return IpcResult::err("KEYRING", "OS keychain/secret service is unavailable.");
+        }
+      };
+
+      let org_id = match resolve_organization_id(state, &session_key).await {
+        Ok(Some(id)) => id,
+        Ok(None) => {
+          state
+            .update_snapshot(app, Some(error_snapshot("No organizations found.")))
+            .await;
+          return IpcResult::ok(());
+        }
+        Err(ClaudeWebErrorStatus::Unauthorized) => {
+          state
+            .update_snapshot(app, Some(unauthorized_snapshot("Unauthorized.")))
+            .await;
+          return IpcResult::ok(());
+        }
+        Err(ClaudeWebErrorStatus::RateLimited) => {
+          state
+            .update_snapshot(app, Some(rate_limited_snapshot("Rate limited.")))
+            .await;
+          return IpcResult::ok(());
+        }
+        Err(ClaudeWebErrorStatus::Error) => {
+          state
+            .update_snapshot(app, Some(error_snapshot("Failed to fetch organizations.")))
+            .await;
+          return IpcResult::ok(());
+        }
+      };
+
+      let snapshot = state.claude.fetch_usage_snapshot(&session_key, &org_id).await;
+      maybe_notify_usage(app, state, previous.as_ref(), &snapshot).await;
+      state.update_snapshot(app, Some(snapshot)).await;
+      IpcResult::ok(())
+    }
+    UsageSource::Cli => {
+      let access_token = match read_cli_oauth_access_token() {
+        Ok(t) => t,
+        Err(CliCredentialsError::HomeMissing) => {
+          state
+            .update_snapshot(app, Some(error_snapshot("HOME is not set; cannot locate CLI credentials.")))
+            .await;
+          return IpcResult::ok(());
+        }
+        Err(CliCredentialsError::MissingFile | CliCredentialsError::MissingAccessToken) => {
+          state
+            .update_snapshot(
+              app,
+              Some(unauthorized_snapshot(
+                "Claude CLI credentials not found. Run `claude login` and try again.",
+              )),
+            )
+            .await;
+          return IpcResult::ok(());
+        }
+        Err(CliCredentialsError::InvalidJson) => {
+          state
+            .update_snapshot(
+              app,
+              Some(unauthorized_snapshot(
+                "Claude CLI credentials are invalid. Re-authenticate (run `claude login`).",
+              )),
+            )
+            .await;
+          return IpcResult::ok(());
+        }
+      };
+
+      let snapshot = state.claude.fetch_oauth_usage_snapshot(&access_token).await;
+      maybe_notify_usage(app, state, previous.as_ref(), &snapshot).await;
+      state.update_snapshot(app, Some(snapshot)).await;
+      IpcResult::ok(())
+    }
+  }
 }
 
 pub(crate) fn spawn_refresh_loop<R: Runtime>(
@@ -372,8 +646,13 @@ pub async fn settings_get_state<R: Runtime>(
   app: AppHandle<R>,
   state: State<'_, AppState<R>>,
 ) -> CommandResult<SettingsState> {
-  let organizations = state.organizations.lock().await.clone();
   let latest_snapshot = state.latest_snapshot.lock().await.clone();
+  let usage_source = state.usage_source();
+  let organizations = if matches!(usage_source, UsageSource::Web) {
+    state.organizations.lock().await.clone()
+  } else {
+    vec![]
+  };
 
   let autostart_enabled = app
     .autolaunch()
@@ -381,13 +660,16 @@ pub async fn settings_get_state<R: Runtime>(
     .unwrap_or(state.settings.get_bool(KEY_AUTOSTART_ENABLED, false));
 
   Ok(SettingsState {
+    usage_source,
     remember_session_key: state.settings.get_bool(KEY_REMEMBER_SESSION_KEY, false),
     refresh_interval_seconds: state.settings.get_u64(KEY_REFRESH_INTERVAL_SECONDS, 60),
     notify_on_usage_reset: state.settings.get_bool(KEY_NOTIFY_ON_USAGE_RESET, true),
     autostart_enabled,
     check_updates_on_startup: state.settings.get_bool(KEY_CHECK_UPDATES_ON_STARTUP, true),
     organizations,
-    selected_organization_id: state.selected_org_id(),
+    selected_organization_id: matches!(usage_source, UsageSource::Web)
+      .then(|| state.selected_org_id())
+      .flatten(),
     latest_snapshot,
     keyring_available: state.session_key.is_available(),
   })
@@ -406,6 +688,7 @@ pub async fn settings_forget_key<R: Runtime>(
   app: AppHandle<R>,
   state: State<'_, AppState<R>>,
 ) -> CommandResult<IpcResult<()>> {
+  let usage_source = state.usage_source();
   let _ = state.session_key.forget_all().await;
   state.settings.set(KEY_REMEMBER_SESSION_KEY, false);
   state.settings.remove(KEY_SELECTED_ORGANIZATION_ID);
@@ -413,7 +696,11 @@ pub async fn settings_forget_key<R: Runtime>(
     let mut guard = state.organizations.lock().await;
     guard.clear();
   }
-  state.update_snapshot(&app, Some(missing_key_snapshot())).await;
+  if matches!(usage_source, UsageSource::Web) {
+    state.update_snapshot(&app, Some(missing_key_snapshot())).await;
+  } else {
+    let _ = state.refresh.refresh_now().await;
+  }
   Ok(IpcResult::ok(()))
 }
 
@@ -423,6 +710,8 @@ pub async fn settings_save<R: Runtime>(
   state: State<'_, AppState<R>>,
   payload: SaveSettingsPayload,
 ) -> CommandResult<IpcResult<()>> {
+  let usage_source = payload.usage_source;
+
   if payload.refresh_interval_seconds < 10 {
     return Ok(IpcResult::err(
       "VALIDATION",
@@ -430,7 +719,18 @@ pub async fn settings_save<R: Runtime>(
     ));
   }
 
-  if payload.remember_session_key && !state.session_key.is_available() {
+  state.settings.set(
+    KEY_USAGE_SOURCE,
+    match usage_source {
+      UsageSource::Web => "web",
+      UsageSource::Cli => "cli",
+    },
+  );
+
+  if matches!(usage_source, UsageSource::Web)
+    && payload.remember_session_key
+    && !state.session_key.is_available()
+  {
     return Ok(IpcResult::err(
       "KEYRING",
       "OS keychain/secret service is unavailable. Disable “Remember session key” to continue.",
@@ -454,6 +754,21 @@ pub async fn settings_save<R: Runtime>(
   state
     .settings
     .set(KEY_CHECK_UPDATES_ON_STARTUP, payload.check_updates_on_startup);
+
+  if matches!(usage_source, UsageSource::Cli) {
+    state.settings.remove(KEY_SELECTED_ORGANIZATION_ID);
+    {
+      let mut guard = state.organizations.lock().await;
+      guard.clear();
+    }
+
+    if payload.check_updates_on_startup {
+      updater::check_for_updates_background(app.clone());
+    }
+
+    let _ = state.refresh.refresh_now().await;
+    return Ok(IpcResult::ok(()));
+  }
 
   let candidate_key = payload
     .session_key

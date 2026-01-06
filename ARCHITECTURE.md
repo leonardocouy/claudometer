@@ -1,6 +1,6 @@
 # Architecture Documentation
 
-Claudometer is a tray-first **macOS + Linux** desktop application that monitors **Claude web** usage limits (not Anthropic Console billing). It is built with **Tauri v2**: a Rust backend that owns lifecycle + polling, and a small Vite-rendered settings window UI.
+Claudometer is a tray-first **macOS + Linux** desktop application that monitors Claude usage limits (not Anthropic Console billing). It is built with **Tauri v2**: a Rust backend that owns lifecycle + polling, and a small Vite-rendered settings window UI.
 
 ## Table of Contents
 
@@ -30,9 +30,10 @@ Tech choices:
 │ Tauri Backend (src-tauri/src)                                   │
 │  • app.rs: Tauri builder + plugin wiring                         │
 │  • tray.rs: tray icon + menu rendering                            │
-│  • claude.rs: claude.ai/api client + parsing/normalization        │
+│  • claude.rs: web + oauth usage clients + parsing/normalization   │
 │  • commands.rs: invoke commands + polling loop + snapshot events  │
 │  • settings.rs: tauri-plugin-store persistence (non-sensitive)    │
+│  • usage_alerts.rs: near-limit + reset notification decisions     │
 │  • updater.rs: tauri-plugin-updater integration                   │
 │  • windows.rs: create/focus settings window on demand             │
 └───────────────┬──────────────────────────────────────────────────┘
@@ -133,11 +134,14 @@ Both services return the same `ClaudeUsageSnapshot` type, making them fully inte
 ### Polling
 
 On each refresh:
-1. Resolve a session key:
-   - in-memory always wins
-   - if “Remember” is enabled, load from OS keychain/Secret Service
-2. Fetch organizations (`GET /api/organizations`) and resolve org ID.
-3. Fetch usage snapshot (`GET /api/organizations/:id/usage`) and normalize.
+1. Resolve the active usage source (`web` or `cli`).
+2. Web mode:
+   - Resolve session key (in-memory always wins; if “Remember” is enabled, load from OS keychain/Secret Service)
+   - Fetch organizations (`GET /api/organizations`) and resolve org ID
+   - Fetch usage snapshot (`GET /api/organizations/:id/usage`) and normalize
+3. CLI mode:
+   - Read OAuth credentials from `~/.claude/.credentials.json`
+   - Fetch usage snapshot (`GET https://api.anthropic.com/api/oauth/usage`) and normalize
 4. Update tray menu text and emit `snapshot:updated` for settings UI.
 
 Special behavior:
@@ -152,8 +156,10 @@ Stored via `tauri-plugin-store`:
 - refresh interval
 - selected org ID
 - remember flag
+- usage source (`web` | `cli`)
 - autostart preference
 - updater preferences
+- notification markers (near-limit + reset dedupe)
 
 ### Sensitive persistence
 
@@ -165,7 +171,7 @@ If OS credential storage is unavailable, “Remember session key” is disabled 
 
 ## API Integration
 
-Claudometer uses Claude’s **web** endpoints (the same interface the website uses).
+Claudometer can use either Claude’s **web** endpoints (the same interface the website uses) or the Claude Code CLI OAuth usage endpoint.
 
 Authentication:
 
@@ -173,23 +179,35 @@ Authentication:
 Cookie: sessionKey=...
 ```
 
+CLI/OAuth authentication:
+```http
+Authorization: Bearer <token>
+anthropic-beta: oauth-2025-04-20
+```
+
 Endpoints:
 - `GET https://claude.ai/api/organizations`
 - `GET https://claude.ai/api/organizations/:id/usage`
+- `GET https://api.anthropic.com/api/oauth/usage`
 
 Tracked fields (MVP):
 - `five_hour` utilization
 - `seven_day` utilization
-- `seven_day_*` model utilization (prefers `seven_day_sonnet`, then `seven_day_opus`)
+- `seven_day_*` model utilization (rendered as `models[]`, preferring `seven_day_sonnet`, then `seven_day_opus`)
 
 ## Security Model
 
 Rules:
 - Never log or display the `sessionKey`.
 - Never persist the `sessionKey` outside OS credential storage.
+- Never log, display, or persist OAuth tokens.
 - Redact any accidental `sessionKey=` occurrences from error strings.
 
 The settings UI only accepts the session key via a password input and clears it after save.
+
+## Debugging
+
+For local development, set `CLAUDOMETER_DEBUG=1` to enable tray menu items that simulate near-limit and reset notifications.
 
 ## Updater + Releases
 
@@ -200,4 +218,3 @@ The updater uses `tauri-plugin-updater` with a static GitHub Releases manifest:
 Release artifacts include `.sig` signature files for the updater payloads, and `latest.json` references those signatures per platform (`linux-x86_64`, `darwin-aarch64`, `darwin-x86_64`).
 
 See `UPDATER_SIGNING.md` for signing key setup and CI expectations.
-

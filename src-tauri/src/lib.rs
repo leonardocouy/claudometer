@@ -6,6 +6,7 @@ mod settings;
 mod tray;
 mod types;
 mod updater;
+mod usage_alerts;
 mod windows;
 
 pub fn run() {

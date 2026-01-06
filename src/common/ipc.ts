@@ -13,6 +13,7 @@ export const ipcChannels = {
 } as const;
 
 export type SettingsState = {
+  usageSource: UsageSource;
   rememberSessionKey: boolean;
   refreshIntervalSeconds: number;
   notifyOnUsageReset: boolean;
@@ -25,7 +26,8 @@ export type SettingsState = {
 };
 
 export type SaveSettingsPayload = {
-  sessionKey: string;
+  usageSource: UsageSource;
+  sessionKey?: string;
   rememberSessionKey: boolean;
   refreshIntervalSeconds: number;
   notifyOnUsageReset: boolean;

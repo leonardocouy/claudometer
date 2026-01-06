@@ -2,7 +2,7 @@ export type UsageStatus = 'ok' | 'unauthorized' | 'rate_limited' | 'error' | 'mi
 
 export type UsageSource = 'web' | 'cli';
 
-export type ModelUsage = {
+export type ClaudeModelUsage = {
   name: string;
   percent: number;
   resetsAt?: string;
@@ -16,7 +16,7 @@ export type ClaudeUsageSnapshot =
       sessionResetsAt?: string;
       weeklyPercent: number;
       weeklyResetsAt?: string;
-      models: ModelUsage[];
+      models: ClaudeModelUsage[];
       lastUpdatedAt: string;
     }
   | {
