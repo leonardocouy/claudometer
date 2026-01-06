@@ -55,26 +55,40 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
             libappindicator3-dev \
+            librsvg2-dev \
+            libxss-dev \
+            libfuse2 \
             patchelf \
             pkg-config \
             build-essential
 
-      - name: Generate ephemeral updater signing key (CI smoke)
-        shell: bash
+      - name: Install libfuse fallback (Ubuntu 24.04+)
+        if: matrix.os == 'ubuntu-latest'
         run: |
           set -euo pipefail
-          pw="ci-smoke"
-          bunx tauri signer generate --ci --password "$pw" --write-keys "$RUNNER_TEMP/tauri-updater.key"
-          echo "TAURI_SIGNING_PRIVATE_KEY=$RUNNER_TEMP/tauri-updater.key" >> "$GITHUB_ENV"
-          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$pw" >> "$GITHUB_ENV"
+          sudo apt-get install -y libfuse2t64 || true
+
+      - name: Enable AppImage extract-and-run (no FUSE)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
 
       - name: Build bundles
         run: |
           bun run sync-versions
+          if [[ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
+            export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+          else
+            unset TAURI_SIGNING_PRIVATE_KEY_PASSWORD || true
+          fi
           bunx tauri build --ci
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Collect bundle artifacts
         run: |
