@@ -118,6 +118,33 @@ async function readCredentials(): Promise<OAuthCredentials | null> {
 }
 
 /**
+ * Validate OAuth credentials for pre-save checks
+ * Returns { valid: true } if credentials exist and are valid
+ * Returns { valid: false, error: string } if validation fails
+ */
+export async function validateOAuthCredentials(): Promise<
+  { valid: true } | { valid: false; error: string }
+> {
+  const credentials = await readCredentials();
+
+  if (!credentials) {
+    return {
+      valid: false,
+      error: 'Could not read OAuth credentials file (~/.claude/.credentials.json).',
+    };
+  }
+
+  if (!credentials.claudeAiOauth?.accessToken) {
+    return {
+      valid: false,
+      error: 'No OAuth credentials found. Please authenticate with Claude Code CLI first:\n  claude',
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
  * Fetch usage data from Anthropic OAuth API
  * @throws ClaudeOAuthRequestError with appropriate status (unauthorized, rate_limited, or error)
  */
@@ -177,19 +204,20 @@ function apiResponseToSnapshot(data: UsageApiResponse): ClaudeUsageSnapshot {
   const weeklyPercent = Math.round(data.seven_day?.utilization ?? 0);
   const weeklyResetsAt = data.seven_day?.resets_at;
 
-  // Model-specific weekly usage (fallback: Opus → Sonnet → 0)
+  // Model-specific weekly usage (fallback: Sonnet → Opus → 0)
+  // Matches Web mode parser preference (parser.ts:88)
   let modelWeeklyPercent = 0;
   let modelWeeklyName: string | undefined;
   let modelWeeklyResetsAt: string | undefined;
 
-  if (data.seven_day_opus) {
-    modelWeeklyPercent = Math.round(data.seven_day_opus.utilization ?? 0);
-    modelWeeklyName = 'Opus';
-    modelWeeklyResetsAt = data.seven_day_opus.resets_at;
-  } else if (data.seven_day_sonnet) {
+  if (data.seven_day_sonnet) {
     modelWeeklyPercent = Math.round(data.seven_day_sonnet.utilization ?? 0);
     modelWeeklyName = 'Sonnet';
     modelWeeklyResetsAt = data.seven_day_sonnet.resets_at;
+  } else if (data.seven_day_opus) {
+    modelWeeklyPercent = Math.round(data.seven_day_opus.utilization ?? 0);
+    modelWeeklyName = 'Opus';
+    modelWeeklyResetsAt = data.seven_day_opus.resets_at;
   }
 
   const snapshot = {

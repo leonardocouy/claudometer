@@ -7,6 +7,7 @@ import type { SettingsService } from './services/settings.ts';
 import type { UsageNotificationService } from './services/usageNotification.ts';
 import type { TrayService } from './tray.ts';
 import { sanitizeString } from '../common/sanitization.ts';
+import { validateOAuthCredentials } from './services/claudeOAuthApi.ts';
 
 // Use centralized sanitization utility
 function sanitizeMessage(message: string): string {
@@ -94,14 +95,27 @@ export class AppController {
       };
     }
 
-    // Validate CLI path if in CLI mode
+    // Validate based on usage source
     const usageSource = parsed.usageSource || 'web';
     const claudeCliPath = parsed.claudeCliPath?.trim() || 'claude';
-    if (usageSource === 'cli' && !claudeCliPath) {
-      return {
-        ok: false,
-        error: { code: 'VALIDATION', message: 'Claude CLI path cannot be empty.' },
-      };
+
+    // Validate CLI mode: check OAuth credentials
+    if (usageSource === 'cli') {
+      if (!claudeCliPath) {
+        return {
+          ok: false,
+          error: { code: 'VALIDATION', message: 'Claude CLI path cannot be empty.' },
+        };
+      }
+
+      // Validate OAuth credentials exist and are valid
+      const credentialsCheck = await validateOAuthCredentials();
+      if (!credentialsCheck.valid) {
+        return {
+          ok: false,
+          error: { code: 'VALIDATION', message: credentialsCheck.error },
+        };
+      }
     }
 
     const candidateSessionKey = parsed.sessionKey?.trim();
