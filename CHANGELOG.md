@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.7.0](https://github.com/leonardocouy/claudometer/compare/v1.6.2...v1.7.0) (2026-01-07)
+
+
+### Features
+
+* trigger release to test workflow fix ([c58b14a](https://github.com/leonardocouy/claudometer/commit/c58b14abcaa61f7b7b0e1e1ce713ca84a0efef5b))
+
+
+### Bug Fixes
+
+* correct workflow syntax for secret checking ([bed6fc9](https://github.com/leonardocouy/claudometer/commit/bed6fc90155824d574c827d95010e1548f012fb3))
+* skip macOS notarization without apple creds ([88aa9c5](https://github.com/leonardocouy/claudometer/commit/88aa9c572f0739a4e177fd1a3660da0d9a4c1147))
+
 ## [1.6.2](https://github.com/leonardocouy/claudometer/compare/v1.6.1...v1.6.2) (2026-01-07)
 
 
