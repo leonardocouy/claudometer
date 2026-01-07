@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.6](https://github.com/leonardocouy/claudometer/compare/claudometer-v1.9.5...claudometer-v1.9.6) (2026-01-07)
+
+
+### Bug Fixes
+
+* sync Cargo.toml to 1.9.5 and remove broken workflow ([#43](https://github.com/leonardocouy/claudometer/issues/43)) ([403f4cb](https://github.com/leonardocouy/claudometer/commit/403f4cb02343cbbab508d413a07c1e086f7ae6d4))
+
 ## [1.9.5](https://github.com/leonardocouy/claudometer/compare/claudometer-v1.9.4...claudometer-v1.9.5) (2026-01-07)
 
 
