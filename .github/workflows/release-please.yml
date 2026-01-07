@@ -124,9 +124,13 @@ jobs:
             unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID || true
           fi
 
-          # Use --bundles app to skip DMG on macOS (hdiutil resource busy error in CI)
+          # Skip DMG on macOS due to "hdiutil: create failed - Resource busy" error in CI
           # See: https://github.com/tauri-apps/tauri-action/issues/801
-          bunx tauri build --ci --bundles app
+          if [[ "${{ matrix.os }}" == "macos-"* ]]; then
+            bunx tauri build --ci --bundles app
+          else
+            bunx tauri build --ci
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
