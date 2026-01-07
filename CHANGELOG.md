@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.3](https://github.com/leonardocouy/claudometer/compare/v1.8.2...v1.8.3) (2026-01-07)
+
+
+### Bug Fixes
+
+* missing thing to not skip dmg ([f4a4a25](https://github.com/leonardocouy/claudometer/commit/f4a4a25cc6a423eb71e6c33910a2d329092ab91b))
+
 ## [1.8.2](https://github.com/leonardocouy/claudometer/compare/v1.8.1...v1.8.2) (2026-01-07)
 
 
