@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/leonardocouy/claudometer/compare/v1.8.3...v1.9.0) (2026-01-07)
+
+
+### Features
+
+* distinct notification sounds for linux ([#30](https://github.com/leonardocouy/claudometer/issues/30)) ([bc668ba](https://github.com/leonardocouy/claudometer/commit/bc668bab5274184f9eac8dc1618848a7a84ecec2))
+
 ## [1.8.3](https://github.com/leonardocouy/claudometer/compare/v1.8.2...v1.8.3) (2026-01-07)
 
 
