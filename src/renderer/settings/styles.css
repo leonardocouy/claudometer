@@ -39,15 +39,20 @@ input[type="password"],
 input[type="number"],
 select {
   width: 100%;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border-radius: 8px;
   border: 1px solid #2a2f3a;
   background: #151923;
   color: #e6e8ee;
-  font-size: 13px;
+  font-size: 12px;
+  min-height: 34px;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+select {
+  height: 34px;
 }
 
 .hint {
@@ -72,13 +77,14 @@ select {
 }
 
 button {
-  padding: 8px 10px;
+  padding: 6px 10px;
   border-radius: 8px;
   border: 1px solid #2a2f3a;
   background: #1b2130;
   color: #e6e8ee;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
+  min-height: 34px;
 }
 
 .buttons button {
