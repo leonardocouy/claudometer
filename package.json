@@ -10,6 +10,7 @@
     "dev:ui": "vite",
     "build:ui": "vite build",
     "sync-versions": "bun run scripts/sync-versions.ts",
+    "sync-versions:check": "bun run scripts/sync-versions.ts --check",
     "typecheck": "tsc --noEmit",
     "check": "biome check .",
     "lint": "biome lint --write",
