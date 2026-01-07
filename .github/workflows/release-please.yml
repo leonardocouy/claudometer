@@ -123,7 +123,10 @@ jobs:
           if [[ -z "${APPLE_ID:-}" || -z "${APPLE_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]; then
             unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID || true
           fi
-          bunx tauri build --ci
+
+          # Use --bundles app to skip DMG on macOS (hdiutil resource busy error in CI)
+          # See: https://github.com/tauri-apps/tauri-action/issues/801
+          bunx tauri build --ci --bundles app
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
