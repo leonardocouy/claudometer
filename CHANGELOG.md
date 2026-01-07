@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.1](https://github.com/leonardocouy/claudometer/compare/v1.7.0...v1.7.1) (2026-01-07)
+
+
+### Bug Fixes
+
+* trigger release ([3552bff](https://github.com/leonardocouy/claudometer/commit/3552bff659ae538de549a4510f442694d9f3ff7a))
+
 ## [1.7.0](https://github.com/leonardocouy/claudometer/compare/v1.6.2...v1.7.0) (2026-01-07)
 
 
