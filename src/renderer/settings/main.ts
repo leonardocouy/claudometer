@@ -115,11 +115,11 @@ async function loadState(
   webOnlySectionEl: HTMLElement,
   cliHintEl: HTMLElement,
   sessionKeyEl: HTMLInputElement,
-  rememberKeyEl: HTMLSelectElement,
+  rememberKeyEl: HTMLInputElement,
   refreshIntervalEl: HTMLSelectElement,
-  notifyResetEl: HTMLSelectElement,
-  autostartEl: HTMLSelectElement,
-  updatesStartupEl: HTMLSelectElement,
+  notifyResetEl: HTMLInputElement,
+  autostartEl: HTMLInputElement,
+  updatesStartupEl: HTMLInputElement,
   orgSelectEl: HTMLSelectElement,
   forgetKeyButton: HTMLButtonElement,
   statusBoxEl: HTMLElement,
@@ -131,15 +131,15 @@ async function loadState(
   cliHintEl.toggleAttribute('hidden', state.usageSource !== 'cli');
   forgetKeyButton.toggleAttribute('hidden', state.usageSource !== 'web');
 
-  rememberKeyEl.value = String(Boolean(state.rememberSessionKey));
+  rememberKeyEl.checked = Boolean(state.rememberSessionKey);
   refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
-  notifyResetEl.value = String(state.notifyOnUsageReset ?? true);
-  autostartEl.value = String(state.autostartEnabled ?? false);
-  updatesStartupEl.value = String(state.checkUpdatesOnStartup ?? true);
+  notifyResetEl.checked = state.notifyOnUsageReset ?? true;
+  autostartEl.checked = state.autostartEnabled ?? false;
+  updatesStartupEl.checked = state.checkUpdatesOnStartup ?? true;
   renderOrgs(orgSelectEl, state.organizations || [], state.selectedOrganizationId);
   rememberKeyEl.disabled = !state.keyringAvailable;
   if (!state.keyringAvailable) {
-    rememberKeyEl.value = 'false';
+    rememberKeyEl.checked = false;
   }
   storageHintEl.textContent = state.keyringAvailable
     ? ''
@@ -172,11 +172,12 @@ function renderApp(root: HTMLElement): void {
     </div>
 
     <div class="row">
-      <label for="rememberKey">Remember session key</label>
-      <select id="rememberKey">
-        <option value="true">Yes (stored in OS keychain)</option>
-        <option value="false">No (memory only, lost on quit)</option>
-      </select>
+      <div class="check-control">
+        <label class="check">
+          <input id="rememberKey" type="checkbox" />
+          <span>Remember session key</span>
+        </label>
+      </div>
       <div class="hint" id="storageHint"></div>
     </div>
 
@@ -200,28 +201,31 @@ function renderApp(root: HTMLElement): void {
     </div>
 
     <div class="row">
-      <label for="notifyReset">Notify when usage periods reset</label>
-      <select id="notifyReset">
-        <option value="true">Yes (default)</option>
-        <option value="false">No</option>
-      </select>
+      <div class="check-control">
+        <label class="check">
+          <input id="notifyReset" type="checkbox" />
+          <span>Notify when usage periods reset</span>
+        </label>
+      </div>
       <div class="hint">Show notifications when 5-hour session or weekly usage windows reset</div>
     </div>
 
     <div class="row inline">
       <div>
-        <label for="autostart">Start on login</label>
-        <select id="autostart">
-          <option value="false">No</option>
-          <option value="true">Yes</option>
-        </select>
+        <div class="check-control">
+          <label class="check">
+            <input id="autostart" type="checkbox" />
+            <span>Start on login</span>
+          </label>
+        </div>
       </div>
       <div>
-        <label for="updatesStartup">Check for updates on startup</label>
-        <select id="updatesStartup">
-          <option value="true">Yes</option>
-          <option value="false">No</option>
-        </select>
+        <div class="check-control">
+          <label class="check">
+            <input id="updatesStartup" type="checkbox" />
+            <span>Check for updates on startup</span>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -249,11 +253,11 @@ function renderApp(root: HTMLElement): void {
   const webOnlySectionEl = el<HTMLElement>(root, '#webOnlySection');
   const cliHintEl = el<HTMLElement>(root, '#cliHint');
   const sessionKeyEl = el<HTMLInputElement>(root, '#sessionKey');
-  const rememberKeyEl = el<HTMLSelectElement>(root, '#rememberKey');
+  const rememberKeyEl = el<HTMLInputElement>(root, '#rememberKey');
   const refreshIntervalEl = el<HTMLSelectElement>(root, '#refreshInterval');
-  const notifyResetEl = el<HTMLSelectElement>(root, '#notifyReset');
-  const autostartEl = el<HTMLSelectElement>(root, '#autostart');
-  const updatesStartupEl = el<HTMLSelectElement>(root, '#updatesStartup');
+  const notifyResetEl = el<HTMLInputElement>(root, '#notifyReset');
+  const autostartEl = el<HTMLInputElement>(root, '#autostart');
+  const updatesStartupEl = el<HTMLInputElement>(root, '#updatesStartup');
   const orgSelectEl = el<HTMLSelectElement>(root, '#orgSelect');
   const statusBoxEl = el<HTMLElement>(root, '#statusBox');
   const storageHintEl = el<HTMLElement>(root, '#storageHint');
@@ -314,11 +318,11 @@ function renderApp(root: HTMLElement): void {
     const payload = {
       usageSource,
       sessionKey: usageSource === 'web' ? sessionKeyEl.value || undefined : undefined,
-      rememberSessionKey: rememberKeyEl.value === 'true',
+      rememberSessionKey: rememberKeyEl.checked,
       refreshIntervalSeconds: Number(refreshIntervalEl.value || 60),
-      notifyOnUsageReset: notifyResetEl.value === 'true',
-      autostartEnabled: autostartEl.value === 'true',
-      checkUpdatesOnStartup: updatesStartupEl.value === 'true',
+      notifyOnUsageReset: notifyResetEl.checked,
+      autostartEnabled: autostartEl.checked,
+      checkUpdatesOnStartup: updatesStartupEl.checked,
       selectedOrganizationId: usageSource === 'web' ? orgSelectEl.value || undefined : undefined,
     };
     const result = await settingsSave(payload);

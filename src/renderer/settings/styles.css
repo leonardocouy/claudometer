@@ -55,6 +55,40 @@ select {
   height: 34px;
 }
 
+.check-control {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #2a2f3a;
+  background: #151923;
+}
+
+.check {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 0;
+  cursor: pointer;
+  font-size: 12px;
+  color: #e6e8ee;
+}
+
+.check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #2b6cff;
+}
+
+.check input[type="checkbox"]:disabled {
+  opacity: 0.6;
+}
+
+.check input[type="checkbox"]:disabled + span {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .hint {
   font-size: 12px;
   color: #a9b0c0;
