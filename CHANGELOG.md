@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.2](https://github.com/leonardocouy/claudometer/compare/claudometer-v1.9.1...claudometer-v1.9.2) (2026-01-07)
+
+
+### Bug Fixes
+
+* notarize macOS GitHub releases ([#33](https://github.com/leonardocouy/claudometer/issues/33)) ([736cb6a](https://github.com/leonardocouy/claudometer/commit/736cb6a541a462df9e1b7be741f2e234d9c1947f))
+
 ## [1.9.1](https://github.com/leonardocouy/claudometer/compare/v1.9.0...v1.9.1) (2026-01-07)
 
 
