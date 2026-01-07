@@ -91,7 +91,7 @@ jobs:
 
       # macOS: Import signing certificate (optional)
       - name: Import macOS signing certificate
-        if: startsWith(matrix.target, 'darwin') && vars.APPLE_CERTIFICATE != ''
+        if: startsWith(matrix.target, 'darwin') && secrets.APPLE_CERTIFICATE != ''
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -111,6 +111,11 @@ jobs:
             export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
           else
             unset TAURI_SIGNING_PRIVATE_KEY_PASSWORD || true
+          fi
+
+          # Avoid notarization attempts when Apple credentials are not configured.
+          if [[ -z "${APPLE_ID:-}" || -z "${APPLE_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]; then
+            unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID || true
           fi
           bunx tauri build --ci
         env:
