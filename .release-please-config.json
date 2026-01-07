@@ -3,8 +3,7 @@
     ".": {
       "release-type": "node",
       "extra-files": [
-        "src-tauri/tauri.conf.json",
-        "src-tauri/Cargo.toml"
+        "src-tauri/tauri.conf.json"
       ]
     }
   }
