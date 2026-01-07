@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.10.0](https://github.com/leonardocouy/claudometer/compare/claudometer-v1.9.6...claudometer-v1.10.0) (2026-01-07)
+
+
+### Features
+
+* default to Claude Code when configured ([#42](https://github.com/leonardocouy/claudometer/issues/42)) ([c8879f2](https://github.com/leonardocouy/claudometer/commit/c8879f2615439fdabd3bf0fc40d98bfaa187584e))
+
+
+### Bug Fixes
+
+* definitive version sync solution ([#45](https://github.com/leonardocouy/claudometer/issues/45)) ([06e7be8](https://github.com/leonardocouy/claudometer/commit/06e7be8513f7991c5d280b7d80f1b15713ae9d98))
+
 ## [1.9.6](https://github.com/leonardocouy/claudometer/compare/claudometer-v1.9.5...claudometer-v1.9.6) (2026-01-07)
 
 
