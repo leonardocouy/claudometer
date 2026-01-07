@@ -161,6 +161,27 @@ jobs:
         with:
           path: artifacts
 
+      - name: Prepare release assets
+        run: |
+          set -euo pipefail
+
+          # Flatten artifacts and rename to include platform in filename
+          mkdir -p release-assets
+          for platform_dir in artifacts/bundles-*; do
+            platform=$(basename "$platform_dir" | sed 's/bundles-//')
+            for file in "$platform_dir"/*; do
+              filename=$(basename "$file")
+              # Only rename .app.tar.gz files (macOS bundles)
+              if [[ "$filename" == "Claudometer.app.tar.gz" ]]; then
+                cp "$file" "release-assets/Claudometer-${platform}.app.tar.gz"
+              elif [[ "$filename" == "Claudometer.app.tar.gz.sig" ]]; then
+                cp "$file" "release-assets/Claudometer-${platform}.app.tar.gz.sig"
+              else
+                cp "$file" "release-assets/$filename"
+              fi
+            done
+          done
+
       - name: Generate latest.json
         env:
           TAG: ${{ needs.release-please.outputs.tag_name }}
@@ -168,17 +189,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          linux_dir="artifacts/bundles-linux-x86_64"
-          mac_arm_dir="artifacts/bundles-darwin-aarch64"
-          mac_x64_dir="artifacts/bundles-darwin-x86_64"
-
-          linux_payload="$(ls -1 "$linux_dir"/*.AppImage | head -n 1)"
+          # Find the renamed files
+          linux_payload="$(ls -1 release-assets/*.AppImage | head -n 1)"
           linux_sig="${linux_payload}.sig"
 
-          mac_arm_payload="$(ls -1 "$mac_arm_dir"/*.app.tar.gz | head -n 1)"
+          mac_arm_payload="release-assets/Claudometer-darwin-aarch64.app.tar.gz"
           mac_arm_sig="${mac_arm_payload}.sig"
 
-          mac_x64_payload="$(ls -1 "$mac_x64_dir"/*.app.tar.gz | head -n 1)"
+          mac_x64_payload="release-assets/Claudometer-darwin-x86_64.app.tar.gz"
           mac_x64_sig="${mac_x64_payload}.sig"
 
           bun run scripts/generate-latest-json.ts \
@@ -196,11 +214,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          mapfile -d '' files < <(find artifacts -type f -print0)
-          if [[ ${#files[@]} -eq 0 ]]; then
-            echo "No release assets found under artifacts/"
-            exit 1
-          fi
-
-          gh release upload "$TAG" "${files[@]}" --clobber
+          # Upload all release assets
+          gh release upload "$TAG" release-assets/* --clobber
           gh release upload "$TAG" latest.json --clobber
