@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.8.0](https://github.com/leonardocouy/claudometer/compare/v1.7.0...v1.8.0) (2026-01-07)
+
+
+### Features
+
+* adjust settings window height to 650px ([8d8b807](https://github.com/leonardocouy/claudometer/commit/8d8b807580b07b06d7894bd203784587111bbb57))
+* increase settings window height by 20% ([562f311](https://github.com/leonardocouy/claudometer/commit/562f311e4dda315b7b7e0607842ab2f8fb0354cb))
+
+
+### Bug Fixes
+
+* prevent app exit when closing settings window ([e33d57e](https://github.com/leonardocouy/claudometer/commit/e33d57e7cd14b0b7f8fcede74795cbcd7bc9135e))
+* skip DMG creation to avoid hdiutil resource busy error ([46d74ac](https://github.com/leonardocouy/claudometer/commit/46d74ac7593966e6074295a59a8440ec4d24a6bd))
+* trigger release ([3552bff](https://github.com/leonardocouy/claudometer/commit/3552bff659ae538de549a4510f442694d9f3ff7a))
+
 ## [1.7.0](https://github.com/leonardocouy/claudometer/compare/v1.6.2...v1.7.0) (2026-01-07)
 
 
