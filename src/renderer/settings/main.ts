@@ -172,13 +172,13 @@ function renderApp(root: HTMLElement): void {
     </div>
 
     <div class="row">
-      <div class="check-control">
-        <label class="check">
-          <input id="rememberKey" type="checkbox" />
-          <span>Remember session key</span>
-        </label>
+      <div class="setting">
+        <div class="setting-text">
+          <label class="setting-title" for="rememberKey">Remember session key</label>
+          <div class="hint" id="storageHint"></div>
+        </div>
+        <input id="rememberKey" class="setting-checkbox" type="checkbox" />
       </div>
-      <div class="hint" id="storageHint"></div>
     </div>
 
     <div class="row">
@@ -201,31 +201,30 @@ function renderApp(root: HTMLElement): void {
     </div>
 
     <div class="row">
-      <div class="check-control">
-        <label class="check">
-          <input id="notifyReset" type="checkbox" />
-          <span>Notify when usage periods reset</span>
-        </label>
+      <div class="setting">
+        <div class="setting-text">
+          <label class="setting-title" for="notifyReset">Notify when usage periods reset</label>
+          <div class="hint">Show notifications when 5-hour session or weekly usage windows reset</div>
+        </div>
+        <input id="notifyReset" class="setting-checkbox" type="checkbox" />
       </div>
-      <div class="hint">Show notifications when 5-hour session or weekly usage windows reset</div>
     </div>
 
-    <div class="row inline">
-      <div>
-        <div class="check-control">
-          <label class="check">
-            <input id="autostart" type="checkbox" />
-            <span>Start on login</span>
-          </label>
+    <div class="row">
+      <div class="setting">
+        <div class="setting-text">
+          <label class="setting-title" for="autostart">Start on login</label>
         </div>
+        <input id="autostart" class="setting-checkbox" type="checkbox" />
       </div>
-      <div>
-        <div class="check-control">
-          <label class="check">
-            <input id="updatesStartup" type="checkbox" />
-            <span>Check for updates on startup</span>
-          </label>
+    </div>
+
+    <div class="row">
+      <div class="setting">
+        <div class="setting-text">
+          <label class="setting-title" for="updatesStartup">Check for updates on startup</label>
         </div>
+        <input id="updatesStartup" class="setting-checkbox" type="checkbox" />
       </div>
     </div>
 
