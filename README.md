@@ -2,145 +2,53 @@
 
 A tray-first desktop application for **macOS** and **Linux** that shows your Claude usage limits in near real-time.
 
-## Installation
-
-### Download Pre-built Releases
-
-Download the latest release for your platform:
-
-**[Download from GitHub Releases](https://github.com/leonardocouy/claudometer/releases)**
-
-| Platform | File |
-|----------|------|
-| macOS (Apple Silicon / Intel) | `*.dmg` |
-| Linux (GNOME/KDE) | `*.AppImage` (recommended), `*.deb`, `*.rpm` |
-
-### Build from Source
-
-#### Prerequisites
-
-**macOS:**
-```bash
-# Install Xcode Command Line Tools
-xcode-select --install
-```
-
-**Linux (Ubuntu/Debian):**
-```bash
-sudo apt update && sudo apt install -y \
-  libwebkit2gtk-4.1-dev \
-  libappindicator3-dev \
-  pkg-config \
-  build-essential
-```
-
-**Linux (Fedora/RHEL):**
-```bash
-sudo dnf install \
-  webkit2gtk4.1-devel \
-  libappindicator-gtk3-devel \
-  pkg-config \
-  gcc-c++
-```
-
-**Linux (Arch):**
-```bash
-sudo pacman -S \
-  webkit2gtk-4.1 \
-  libappindicator-gtk3 \
-  pkg-config \
-  base-devel
-```
-
-> **Note**: The packages above are the minimum required. If the build fails, you may need additional dependencies that come transitively with `libwebkit2gtk-4.1-dev` on some distributions. Only install these if the build explicitly fails:
-> ```bash
-> # Only if build fails:
-> sudo apt install libjavascriptcoregtk-4.1-dev libsoup-3.0-dev
-> ```
-
-#### Build Steps
-
-1. **Install Bun**
-   ```bash
-   curl -fsSL https://bun.sh/install | bash
-   ```
-
-2. **Clone and install dependencies**
-   ```bash
-   git clone https://github.com/leonardocouy/claudometer.git
-   cd claudometer
-   bun install
-   ```
-
-3. **Build distributables**
-   ```bash
-   bun run build
-   # Output in ./src-tauri/target/release/bundle/
-   ```
-
-## What This Does
-
-Monitors your Claude usage and displays it in your system tray:
-- **5-hour session utilization** - How much you've used in the current rolling 5-hour window
-- **Weekly utilization** - Your overall weekly Claude usage
-- **Model-specific weekly usage** - Weekly limits for specific models (Opus, Sonnet, etc.)
-
-The app polls usage at configurable intervals and updates the tray menu text.
-
-## Quick Start (Development)
-
-1. **Install dependencies**
-   ```bash
-   bun install
-   ```
-
-2. **Choose your authentication mode**
-
-   ### Option A: Web Mode (Session Key)
-   - Log in to [claude.ai](https://claude.ai)
-   - Open DevTools (F12 or Cmd+Option+I)
-   - Go to **Application** → **Cookies** → `https://claude.ai`
-   - Copy the `sessionKey` value
-
-   ### Option B: CLI Mode (OAuth) - Recommended
-   - Install Claude Code: https://docs.anthropic.com/en/docs/agent-code
-   - Authenticate once:
-     ```bash
-     claude
-     # Follow OAuth flow in browser
-     ```
-   - Claude Code stores OAuth credentials locally after login
-
-3. **Run in development mode**
-   ```bash
-   bun run dev
-   ```
-
-4. **Configure the app**
-   - Click the tray icon → **"Open Settings..."**
-   - Select your usage source:
-     - **Claude Web**: paste your session key (cookie)
-     - **Claude Code**: uses your Claude Code login (run `claude login` if needed)
-   - Set refresh interval (default: 60s)
-   - Save
-
-The tray will now show your Claude usage stats.
+<p align="center">
+  <img src="assets/screenshot-settings.png" alt="Claudometer Settings" width="360"/>
+  <img src="assets/screenshot-tray.png" alt="Claudometer Tray Menu" width="260"/>
+</p>
 
 ## Features
 
-| Feature | Description |
-|---------|-------------|
-| **Dual Authentication** | Web mode (session key) or CLI mode (OAuth API) - your choice |
-| **System Tray** | Lives in your menu bar/system tray - always visible |
-| **Real-time Updates** | Configurable polling (minimum 10 seconds) |
-| **Usage Sources** | Claude Web (session key) or Claude Code (OAuth credentials) |
-| **Multi-organization** | Supports accounts with multiple Claude orgs |
-| **Secure Storage** | Session key is stored only in OS Keychain/Secret Service (or kept in memory if “Remember” is disabled) |
-| **Status States** | Handles ok, unauthorized, rate limited, and missing key states |
-| **Notifications** | Near-limit alerts (>= 90%) and optional reset notifications (when `resets_at` changes) |
-| **Auto-recovery** | Backs off automatically when rate-limited |
-| **Localized Timestamps** | Tray times render in your system locale + time zone |
-| **Updater** | Signed auto-updates via `latest.json` + `.sig` assets in GitHub Releases |
+- **Real-time usage tracking** - Monitor your 5-hour session and weekly Claude usage limits
+- **Dual authentication modes**:
+  - **Claude Code** (recommended) - Uses your existing Claude Code OAuth login
+  - **Claude Web** - Uses your claude.ai session cookie
+- **System tray integration** - Always visible in your menu bar, stays out of your way
+- **Near-limit alerts** - Get notified when approaching usage limits (≥90%)
+- **Secure credential storage** - Session keys stored in OS Keychain (macOS) or Secret Service (Linux)
+- **Auto-updates** - Stay up to date with signed automatic updates
+- **Multi-organization support** - Switch between Claude organizations seamlessly (Claude Web only)
+
+## Installation
+
+### macOS
+
+Download the latest `.dmg` from [**GitHub Releases**](https://github.com/leonardocouy/claudometer/releases), open it, and drag Claudometer to your Applications folder.
+
+### Linux
+
+Download from [**GitHub Releases**](https://github.com/leonardocouy/claudometer/releases):
+
+| Format | Best for |
+|--------|----------|
+| `.AppImage` | Universal (recommended) - just download and run |
+| `.deb` | Ubuntu, Debian, Pop!_OS |
+| `.rpm` | Fedora, RHEL, openSUSE |
+
+> **Tip**: For AppImage, make it executable with `chmod +x Claudometer*.AppImage` and run it.
+
+### Build from Source
+
+If you prefer to build from source, see the [Development](#development) section below.
+
+## Quick Start
+
+1. **Launch Claudometer** - The app starts minimized in your system tray
+2. **Open Settings** - Click the tray icon → "Open Settings..."
+3. **Choose your usage source**:
+   - **Claude Code** (recommended): If you use [Claude Code](https://docs.anthropic.com/en/docs/agent-code), just run `claude login` once and Claudometer will use those credentials
+   - **Claude Web**: Paste your `sessionKey` cookie from claude.ai
+4. **Save** - Your usage stats will appear in the tray menu
 
 ## Project Structure
 
@@ -215,6 +123,42 @@ Then use the tray menu items under “Debug:” to simulate near-limit and reset
 
 - [Bun](https://bun.sh) runtime
 - macOS or Linux (Windows not currently supported)
+
+**macOS:**
+```bash
+xcode-select --install
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt update && sudo apt install -y \
+  libwebkit2gtk-4.1-dev libappindicator3-dev pkg-config build-essential
+```
+
+**Linux (Fedora):**
+```bash
+sudo dnf install webkit2gtk4.1-devel libappindicator-gtk3-devel pkg-config gcc-c++
+```
+
+**Linux (Arch):**
+```bash
+sudo pacman -S webkit2gtk-4.1 libappindicator-gtk3 pkg-config base-devel
+```
+
+### Build from Source
+
+```bash
+# Install Bun (if not installed)
+curl -fsSL https://bun.sh/install | bash
+
+# Clone and build
+git clone https://github.com/leonardocouy/claudometer.git
+cd claudometer
+bun install
+bun run build
+
+# Output in ./src-tauri/target/release/bundle/
+```
 
 ### Available Scripts
 

@@ -23,14 +23,20 @@ This file mirrors `AGENTS.md` for tooling that auto-loads `CLAUDE.md`.
 
 ## Project Overview
 
-**Claudometer** is a tray-first desktop application for **macOS + Linux** that shows Claude web usage limits in near real time.
+**Claudometer** is a tray-first desktop application for **macOS + Linux** that shows Claude usage limits in near real time.
 
-The MVP tracks **Claude web** usage (not Anthropic Console billing):
+The MVP tracks Claude usage via **two authentication modes**:
+- **Web mode**: Claude.ai web session cookie (`sessionKey`)
+- **CLI mode**: Claude Code CLI OAuth credentials (local Claude Code session)
+
+Both modes track the same metrics:
 - 5-hour session utilization (`five_hour`)
 - weekly utilization (`seven_day`)
 - model-specific weekly utilization (`seven_day_*`, prefers `seven_day_sonnet`, then `seven_day_opus`)
 
-Authentication is via the Claude web session cookie (`sessionKey`), sent as `Cookie: sessionKey=...` to `https://claude.ai/api/...`.
+**Web mode** authenticates via Claude web session cookie, sent as `Cookie: sessionKey=...` to `https://claude.ai/api/*`.
+
+**CLI mode** authenticates via OAuth Bearer token, sent to `https://api.anthropic.com/api/oauth/*`.
 
 ## Tech Stack (Target)
 

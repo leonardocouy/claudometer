@@ -1,5 +1,6 @@
 use crate::claude::{
-    read_cli_oauth_access_token, ClaudeApiClient, ClaudeWebErrorStatus, CliCredentialsError,
+    cli_credentials_available, read_cli_oauth_access_token, ClaudeApiClient, ClaudeWebErrorStatus,
+    CliCredentialsError,
 };
 use crate::redact::redact_session_key;
 use crate::settings::{
@@ -297,9 +298,18 @@ impl<R: Runtime> AppState<R> {
     }
 
     pub fn usage_source(&self) -> UsageSource {
-        match self.settings.get_string(KEY_USAGE_SOURCE).as_deref() {
-            Some("cli") => UsageSource::Cli,
-            _ => UsageSource::Web,
+        if let Some(value) = self.settings.get_string(KEY_USAGE_SOURCE) {
+            return if value == "cli" {
+                UsageSource::Cli
+            } else {
+                UsageSource::Web
+            };
+        }
+
+        if cli_credentials_available() {
+            UsageSource::Cli
+        } else {
+            UsageSource::Web
         }
     }
 }
@@ -451,7 +461,7 @@ async fn maybe_notify_usage<R: Runtime>(
     }
 
     // Reset notifications (gated; no first-baseline notification).
-    let notify_on_usage_reset = state.settings.get_bool(KEY_NOTIFY_ON_USAGE_RESET, true);
+    let notify_on_usage_reset = state.settings.get_bool(KEY_NOTIFY_ON_USAGE_RESET, false);
 
     let (last_seen_session, last_seen_weekly) = {
         let guard = state.reset_baseline_by_org.lock().await;
@@ -768,7 +778,7 @@ pub async fn settings_get_state<R: Runtime>(
         usage_source,
         remember_session_key: state.settings.get_bool(KEY_REMEMBER_SESSION_KEY, false),
         refresh_interval_seconds: state.settings.get_u64(KEY_REFRESH_INTERVAL_SECONDS, 60),
-        notify_on_usage_reset: state.settings.get_bool(KEY_NOTIFY_ON_USAGE_RESET, true),
+        notify_on_usage_reset: state.settings.get_bool(KEY_NOTIFY_ON_USAGE_RESET, false),
         autostart_enabled,
         check_updates_on_startup: state.settings.get_bool(KEY_CHECK_UPDATES_ON_STARTUP, true),
         organizations,

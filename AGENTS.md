@@ -25,7 +25,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 The MVP tracks Claude usage via **two authentication modes**:
 - **Web mode**: Claude.ai web session cookie (`sessionKey`)
-- **CLI mode**: Claude Code CLI OAuth credentials (`~/.claude/.credentials.json`)
+- **CLI mode**: Claude Code CLI OAuth credentials (local Claude Code session)
 
 Both modes track the same metrics:
 - 5-hour session utilization (`five_hour`)
