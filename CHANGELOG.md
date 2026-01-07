@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/leonardocouy/claudometer/compare/v1.5.0...v1.6.0) (2026-01-07)
+
+
+### Features
+
+* Settings UI polish ([6609c9d](https://github.com/leonardocouy/claudometer/commit/6609c9d307a2a2c030c4ac0160cdc84c7a82b188))
+
 ## [1.5.0](https://github.com/leonardocouy/claudometer/compare/v1.4.0...v1.5.0) (2026-01-06)
 
 
