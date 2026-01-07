@@ -89,13 +89,19 @@ jobs:
         run: |
           echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
 
-      # macOS: Import signing certificate (optional)
+      # macOS: Import signing certificate (optional, skipped if not configured)
       - name: Import macOS signing certificate
-        if: startsWith(matrix.target, 'darwin') && secrets.APPLE_CERTIFICATE != ''
+        if: startsWith(matrix.target, 'darwin')
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
         run: |
+          # Skip if certificate is not configured
+          if [[ -z "${APPLE_CERTIFICATE:-}" ]]; then
+            echo "Apple certificate not configured, skipping..."
+            exit 0
+          fi
+
           echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
           security create-keychain -p actions build.keychain
           security default-keychain -s build.keychain
