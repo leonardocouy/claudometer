@@ -204,7 +204,6 @@ function renderApp(root: HTMLElement): void {
       <div class="setting">
         <div class="setting-text">
           <label class="setting-title" for="notifyReset">Notify when usage periods reset</label>
-          <div class="hint">Show notifications when 5-hour session or weekly usage windows reset</div>
         </div>
         <input id="notifyReset" class="setting-checkbox" type="checkbox" />
       </div>
