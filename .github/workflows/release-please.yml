@@ -179,6 +179,49 @@ jobs:
           APPLE_ID_PASSWORD: ${{ startsWith(matrix.target, 'darwin') && secrets.APPLE_ID_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ startsWith(matrix.target, 'darwin') && secrets.APPLE_TEAM_ID || '' }}
 
+      - name: Notarize + staple macOS artifacts
+        if: startsWith(matrix.target, 'darwin')
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          app_path="$(find "src-tauri/target/release/bundle" -type d -name 'Claudometer.app' -print -quit || true)"
+          if [[ -z "${app_path:-}" ]]; then
+            echo "Failed to locate Claudometer.app under src-tauri/target/release/bundle"
+            find "src-tauri/target/release/bundle" -maxdepth 4 -print || true
+            exit 1
+          fi
+
+          dmg_path="$(find "src-tauri/target/release/bundle" -type f -name '*.dmg' -print -quit || true)"
+          if [[ -n "${dmg_path:-}" ]]; then
+            payload="$dmg_path"
+          else
+            echo "No .dmg produced; notarizing a zipped .app instead."
+            payload_dir="$(mktemp -d)"
+            payload="$payload_dir/Claudometer.app.zip"
+            ditto -c -k --keepParent "$app_path" "$payload"
+          fi
+
+          echo "Submitting for notarization: $payload"
+          xcrun notarytool submit "$payload" \
+            --wait \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID"
+
+          echo "Stapling notarization ticket: $app_path"
+          xcrun stapler staple -v "$app_path"
+          xcrun stapler validate -v "$app_path"
+
+          if [[ -n "${dmg_path:-}" ]]; then
+            echo "Stapling notarization ticket: $dmg_path"
+            xcrun stapler staple -v "$dmg_path"
+            xcrun stapler validate -v "$dmg_path"
+          fi
+
       - name: Verify macOS signing + notarization
         if: startsWith(matrix.target, 'darwin')
         run: |
@@ -197,18 +240,10 @@ jobs:
           echo "Verifying Gatekeeper assessment (spctl): $app_path"
           spctl -a -vv --type exec "$app_path"
 
-          echo "Stapling notarization ticket: $app_path"
-          xcrun stapler staple -v "$app_path"
-          xcrun stapler validate -v "$app_path"
-
           dmg_path="$(find "src-tauri/target/release/bundle" -type f -name '*.dmg' -print -quit || true)"
           if [[ -n "${dmg_path:-}" ]]; then
             echo "Verifying Gatekeeper assessment (spctl): $dmg_path"
             spctl -a -vv --type open "$dmg_path"
-
-            echo "Stapling notarization ticket: $dmg_path"
-            xcrun stapler staple -v "$dmg_path"
-            xcrun stapler validate -v "$dmg_path"
           else
             echo "No .dmg produced; skipping DMG validation."
           fi
@@ -427,6 +462,48 @@ jobs:
 
           bunx tauri build --ci
 
+      - name: Notarize + staple macOS artifacts
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          app_path="$(find "src-tauri/target/release/bundle" -type d -name 'Claudometer.app' -print -quit || true)"
+          if [[ -z "${app_path:-}" ]]; then
+            echo "Failed to locate Claudometer.app under src-tauri/target/release/bundle"
+            find "src-tauri/target/release/bundle" -maxdepth 4 -print || true
+            exit 1
+          fi
+
+          dmg_path="$(find "src-tauri/target/release/bundle" -type f -name '*.dmg' -print -quit || true)"
+          if [[ -n "${dmg_path:-}" ]]; then
+            payload="$dmg_path"
+          else
+            echo "No .dmg produced; notarizing a zipped .app instead."
+            payload_dir="$(mktemp -d)"
+            payload="$payload_dir/Claudometer.app.zip"
+            ditto -c -k --keepParent "$app_path" "$payload"
+          fi
+
+          echo "Submitting for notarization: $payload"
+          xcrun notarytool submit "$payload" \
+            --wait \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID"
+
+          echo "Stapling notarization ticket: $app_path"
+          xcrun stapler staple -v "$app_path"
+          xcrun stapler validate -v "$app_path"
+
+          if [[ -n "${dmg_path:-}" ]]; then
+            echo "Stapling notarization ticket: $dmg_path"
+            xcrun stapler staple -v "$dmg_path"
+            xcrun stapler validate -v "$dmg_path"
+          fi
+
       - name: Verify macOS signing + notarization
         run: |
           set -euo pipefail
@@ -444,18 +521,10 @@ jobs:
           echo "Verifying Gatekeeper assessment (spctl): $app_path"
           spctl -a -vv --type exec "$app_path"
 
-          echo "Stapling notarization ticket: $app_path"
-          xcrun stapler staple -v "$app_path"
-          xcrun stapler validate -v "$app_path"
-
           dmg_path="$(find "src-tauri/target/release/bundle" -type f -name '*.dmg' -print -quit || true)"
           if [[ -n "${dmg_path:-}" ]]; then
             echo "Verifying Gatekeeper assessment (spctl): $dmg_path"
             spctl -a -vv --type open "$dmg_path"
-
-            echo "Stapling notarization ticket: $dmg_path"
-            xcrun stapler staple -v "$dmg_path"
-            xcrun stapler validate -v "$dmg_path"
           else
             echo "No .dmg produced; skipping DMG validation."
           fi
