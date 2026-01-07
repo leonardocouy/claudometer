@@ -24,6 +24,15 @@ pub fn run() {
             commands::open_settings,
             commands::check_for_updates,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Prevent closing the settings window from exiting the app
+                if window.label() == crate::windows::SETTINGS_WINDOW_LABEL {
+                    window.hide().unwrap_or_default();
+                    api.prevent_close();
+                }
+            }
+        })
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
             match id {
