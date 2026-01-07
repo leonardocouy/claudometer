@@ -15,7 +15,7 @@ pub fn open_settings_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()>
         WebviewUrl::App("index.html".into()),
     )
     .title("Claudometer Settings")
-    .inner_size(460.0, 720.0)
+    .inner_size(460.0, 650.0)
     .resizable(false)
     .minimizable(false)
     .maximizable(false)
