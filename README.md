@@ -322,16 +322,6 @@ Claude API is rate-limiting your requests:
 - The app automatically backs off for 5 minutes
 - Consider increasing your refresh interval in Settings
 
-### Cannot open the app on macOS
-
-On macOS, the app can be blocked from opening as it is not signed. Allow the app to open by either:
-- Open System Settings > Privacy & Security > Security and click `Open Anyway`.
-- Or, run the following command in the terminal to remove the app from quarantine:
-  ```sh
-  sudo xattr -d com.apple.quarantine /Applications/Claudometer.app
-  ```
-  Typically it's located at `/Applications/Claudometer.app`, but change it to the actual path if it's not there.
-
 ### App won't start on Linux
 
 If “Remember session key” is disabled in Settings, your session key will not persist across restarts.
