@@ -11,12 +11,15 @@ pub fn check_for_updates_background<R: Runtime>(app: tauri::AppHandle<R>) {
 }
 
 async fn notify<R: Runtime>(app: &tauri::AppHandle<R>, body: &str) {
-    let _ = app
-        .notification()
-        .builder()
-        .title("Claudometer")
-        .body(body)
-        .show();
+    let notification = app.notification().builder().title("Claudometer").body(body);
+
+    #[cfg(target_os = "macos")]
+    let notification = notification.sound("Ping");
+
+    #[cfg(target_os = "linux")]
+    let notification = notification.sound("message-new-instant");
+
+    let _ = notification.show();
 }
 
 pub async fn check_for_updates_startup<R: Runtime>(app: tauri::AppHandle<R>) -> IpcResult<()> {
