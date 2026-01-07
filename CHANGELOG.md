@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/leonardocouy/claudometer/compare/v1.9.0...v1.9.1) (2026-01-07)
+
+
+### Bug Fixes
+
+* enforce version sync ([#32](https://github.com/leonardocouy/claudometer/issues/32)) ([7049720](https://github.com/leonardocouy/claudometer/commit/70497208351268d2b71e220930fb01e8bf57c1f9))
+
 ## [1.9.0](https://github.com/leonardocouy/claudometer/compare/claudometer-v1.8.3...claudometer-v1.9.0) (2026-01-07)
 
 
