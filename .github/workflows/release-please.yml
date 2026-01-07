@@ -90,29 +90,79 @@ jobs:
         run: |
           echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
 
-      # macOS: Import signing certificate (optional, skipped if not configured)
+      # macOS: Validate signing/notarization prerequisites (release builds MUST be notarized)
+      - name: Validate macOS signing + notarization secrets
+        if: startsWith(matrix.target, 'darwin')
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          require_secret() {
+            local name="$1"
+            local value="${2:-}"
+            if [[ -z "$value" ]]; then
+              echo "Missing required GitHub Actions secret: $name"
+              missing=1
+            fi
+          }
+
+          require_secret "APPLE_CERTIFICATE" "${APPLE_CERTIFICATE:-}"
+          require_secret "APPLE_CERTIFICATE_PASSWORD" "${APPLE_CERTIFICATE_PASSWORD:-}"
+          require_secret "KEYCHAIN_PASSWORD" "${KEYCHAIN_PASSWORD:-}"
+          require_secret "APPLE_ID" "${APPLE_ID:-}"
+          require_secret "APPLE_ID_PASSWORD" "${APPLE_ID_PASSWORD:-}"
+
+          require_secret "APPLE_TEAM_ID" "${APPLE_TEAM_ID:-}"
+
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+
+      # macOS: Import signing certificate
       - name: Import macOS signing certificate
         if: startsWith(matrix.target, 'darwin')
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
-          # Skip if certificate is not configured
-          if [[ -z "${APPLE_CERTIFICATE:-}" ]]; then
-            echo "Apple certificate not configured, skipping..."
-            exit 0
+          set -euo pipefail
+
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security list-keychains -d user -s build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm certificate.p12
+
+          cert_info="$(security find-identity -v -p codesigning build.keychain | grep -m 1 'Developer ID Application' || true)"
+          if [[ -z "${cert_info:-}" ]]; then
+            echo "Failed to find a 'Developer ID Application' codesigning identity in the imported keychain."
+            security find-identity -v -p codesigning build.keychain || true
+            exit 1
           fi
 
-          echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
-          security create-keychain -p actions build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p actions build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions build.keychain
-          rm certificate.p12
+          cert_id="$(echo "$cert_info" | awk -F'\"' '{print $2}')"
+          if [[ -z "${cert_id:-}" ]]; then
+            echo "Failed to parse codesigning identity from: $cert_info"
+            exit 1
+          fi
+
+          echo "APPLE_SIGNING_IDENTITY=$cert_id" >> "$GITHUB_ENV"
 
       - name: Build bundles
         run: |
+          set -euo pipefail
           bun run sync-versions
           if [[ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
             export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
@@ -120,20 +170,89 @@ jobs:
             unset TAURI_SIGNING_PRIVATE_KEY_PASSWORD || true
           fi
 
-          # Avoid notarization attempts when Apple credentials are not configured.
-          if [[ -z "${APPLE_ID:-}" || -z "${APPLE_PASSWORD:-}" || -z "${APPLE_TEAM_ID:-}" ]]; then
-            unset APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID || true
-          fi
-
           bunx tauri build --ci
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS notarization (optional)
+          # macOS notarization
+          APPLE_ID: ${{ startsWith(matrix.target, 'darwin') && secrets.APPLE_ID || '' }}
+          APPLE_ID_PASSWORD: ${{ startsWith(matrix.target, 'darwin') && secrets.APPLE_ID_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ startsWith(matrix.target, 'darwin') && secrets.APPLE_TEAM_ID || '' }}
+
+      - name: Notarize + staple macOS artifacts
+        if: startsWith(matrix.target, 'darwin')
+        env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+
+          app_path="$(find "src-tauri/target/release/bundle" -type d -name 'Claudometer.app' -print -quit || true)"
+          if [[ -z "${app_path:-}" ]]; then
+            echo "Failed to locate Claudometer.app under src-tauri/target/release/bundle"
+            find "src-tauri/target/release/bundle" -maxdepth 4 -print || true
+            exit 1
+          fi
+
+          dmg_path="$(find "src-tauri/target/release/bundle" -type f -name '*.dmg' -print -quit || true)"
+          if [[ -n "${dmg_path:-}" ]]; then
+            payload="$dmg_path"
+          else
+            echo "No .dmg produced; notarizing a zipped .app instead."
+            payload_dir="$(mktemp -d)"
+            payload="$payload_dir/Claudometer.app.zip"
+            ditto -c -k --keepParent "$app_path" "$payload"
+          fi
+
+          echo "Submitting for notarization: $payload"
+          xcrun notarytool submit "$payload" \
+            --wait \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_ID_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID"
+
+          echo "Stapling notarization ticket: $app_path"
+          xcrun stapler staple -v "$app_path"
+          xcrun stapler validate -v "$app_path"
+
+          if [[ -n "${dmg_path:-}" ]]; then
+            echo "Stapling notarization ticket: $dmg_path"
+            xcrun stapler staple -v "$dmg_path"
+            xcrun stapler validate -v "$dmg_path"
+          fi
+
+      - name: Verify macOS signing + notarization
+        if: startsWith(matrix.target, 'darwin')
+        run: |
+          set -euo pipefail
+
+          app_path="$(find "src-tauri/target/release/bundle" -type d -name 'Claudometer.app' -print -quit || true)"
+          if [[ -z "${app_path:-}" ]]; then
+            echo "Failed to locate Claudometer.app under src-tauri/target/release/bundle"
+            find "src-tauri/target/release/bundle" -maxdepth 4 -print || true
+            exit 1
+          fi
+
+          echo "Verifying codesign: $app_path"
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+
+          echo "Verifying Gatekeeper assessment (spctl): $app_path"
+          spctl -a -vv --type exec "$app_path"
+
+          dmg_path="$(find "src-tauri/target/release/bundle" -type f -name '*.dmg' -print -quit || true)"
+          if [[ -n "${dmg_path:-}" ]]; then
+            echo "Verifying Gatekeeper assessment (spctl): $dmg_path"
+            # `spctl` can be flaky in CI for DMGs (e.g. "Result too large"), so treat it as best-effort.
+            spctl -a -vvv -t install "$dmg_path" || echo "spctl DMG assessment failed (non-blocking)"
+
+            echo "Verifying stapled notarization ticket (stapler): $dmg_path"
+            # `stapler validate` is the reliable check that the notarization ticket is attached.
+            xcrun stapler validate -v "$dmg_path"
+          else
+            echo "No .dmg produced; skipping DMG validation."
+          fi
 
       - name: Collect bundle artifacts
         run: |
