@@ -156,12 +156,9 @@ function renderApp(root: HTMLElement): void {
     <div class="row">
       <label for="usageSource">Usage data source</label>
       <select id="usageSource">
-        <option value="cli">Claude Code (recommended)</option>
         <option value="web">Claude Web (session key cookie)</option>
+        <option value="cli">Claude Code</option>
       </select>
-      <div class="hint">
-        Defaults to Claude Code when it's already configured. Otherwise, Claude Web.
-      </div>
       <div class="hint" id="cliHint" hidden>
         Uses your Claude Code login to fetch usage. If it isn't set up yet, run <code>claude login</code>.
       </div>
