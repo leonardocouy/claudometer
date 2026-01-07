@@ -3,8 +3,8 @@
 A tray-first desktop application for **macOS** and **Linux** that shows your Claude usage limits in near real-time.
 
 <p align="center">
-  <img src="assets/screenshot-tray.png" alt="Claudometer Tray Menu" height="300"/>
-  <img src="assets/screenshot-settings.png" alt="Claudometer Settings" height="300"/>
+  <img src="assets/screenshot-tray-mac.png" alt="Claudometer Tray Menu" height="300"/>
+  <img src="assets/screenshot-settings-mac.png" alt="Claudometer Settings" height="300"/>
 </p>
 
 ## Features
