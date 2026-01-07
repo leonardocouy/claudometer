@@ -364,12 +364,15 @@ fn map_set_org_period_id(map: &mut JsonMap<String, JsonValue>, org_id: &str, per
 }
 
 async fn notify<R: Runtime>(app: &AppHandle<R>, body: &str) {
-    let _ = app
-        .notification()
-        .builder()
-        .title("Claudometer")
-        .body(body)
-        .show();
+    let notification = app.notification().builder().title("Claudometer").body(body);
+
+    #[cfg(target_os = "macos")]
+    let notification = notification.sound("Ping");
+
+    #[cfg(target_os = "linux")]
+    let notification = notification.sound("message-new-instant");
+
+    let _ = notification.show();
 }
 
 async fn maybe_notify_usage<R: Runtime>(

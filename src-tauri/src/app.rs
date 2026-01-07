@@ -6,6 +6,17 @@ use std::collections::HashMap;
 use tauri::Manager;
 use tokio::sync::mpsc;
 
+fn format_rfc3339(dt: time::OffsetDateTime) -> String {
+    dt.format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+fn debug_resets_at(base: time::OffsetDateTime) -> (String, String) {
+    let session = base + time::Duration::hours(5);
+    let weekly = base + time::Duration::days(7);
+    (format_rfc3339(session), format_rfc3339(weekly))
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -66,11 +77,25 @@ pub fn run() {
                 tray::ITEM_DEBUG_SET_NEAR_LIMIT => {
                     let state = app.state::<AppState<tauri::Wry>>().inner().clone();
                     tauri::async_runtime::spawn(async move {
+                        // Ensure the near-limit notification triggers by simulating a
+                        // transition from < 90% to >= 90%.
+                        {
+                            let mut guard = state.debug_override.lock().await;
+                            guard.active = true;
+                            guard.session_percent = 50.0;
+                            guard.weekly_percent = 50.0;
+                        }
+                        let _ = state.refresh.refresh_now().await;
+
+                        let (session_resets_at, weekly_resets_at) =
+                            debug_resets_at(time::OffsetDateTime::now_utc());
                         {
                             let mut guard = state.debug_override.lock().await;
                             guard.active = true;
                             guard.session_percent = 95.0;
                             guard.weekly_percent = 95.0;
+                            guard.session_resets_at = session_resets_at;
+                            guard.weekly_resets_at = weekly_resets_at;
                         }
                         let _ = state.refresh.refresh_now().await;
                     });
@@ -78,14 +103,25 @@ pub fn run() {
                 tray::ITEM_DEBUG_BUMP_RESETS_AT => {
                     let state = app.state::<AppState<tauri::Wry>>().inner().clone();
                     tauri::async_runtime::spawn(async move {
-                        let now = time::OffsetDateTime::now_utc()
-                            .format(&time::format_description::well_known::Rfc3339)
-                            .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string());
+                        // Ensure reset notifications trigger by recording a baseline and then
+                        // changing the period identifiers.
+                        let base = time::OffsetDateTime::now_utc();
+                        let (session_resets_at_1, weekly_resets_at_1) = debug_resets_at(base);
+                        let (session_resets_at_2, weekly_resets_at_2) =
+                            debug_resets_at(base + time::Duration::seconds(1));
                         {
                             let mut guard = state.debug_override.lock().await;
                             guard.active = true;
-                            guard.session_resets_at = now.clone();
-                            guard.weekly_resets_at = now;
+                            guard.session_resets_at = session_resets_at_1;
+                            guard.weekly_resets_at = weekly_resets_at_1;
+                        }
+                        let _ = state.refresh.refresh_now().await;
+
+                        {
+                            let mut guard = state.debug_override.lock().await;
+                            guard.active = true;
+                            guard.session_resets_at = session_resets_at_2;
+                            guard.weekly_resets_at = weekly_resets_at_2;
                         }
                         let _ = state.refresh.refresh_now().await;
                     });
