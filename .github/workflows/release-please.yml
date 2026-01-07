@@ -16,8 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
+      version: ${{ steps.release.outputs.version }}
       tag_name: ${{ steps.release.outputs.tag_name }}
-      upload_url: ${{ steps.release.outputs.upload_url }}
     steps:
       - name: Release Please
         id: release
@@ -25,12 +25,15 @@ jobs:
         with:
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
+          skip-github-release: true
 
   sync-versions:
     name: Sync Tauri/Rust Versions
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sync.outputs.sha }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -50,11 +53,13 @@ jobs:
         run: bun run sync-versions
 
       - name: Commit and push synced versions
+        id: sync
         run: |
           set -euo pipefail
 
           if git diff --quiet; then
             echo "Versions already in sync, nothing to commit."
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -65,6 +70,8 @@ jobs:
           git add src-tauri/Cargo.toml src-tauri/tauri.conf.json
           git commit -m "chore: sync Tauri/Rust versions to ${version} [skip ci]"
           git push origin main
+
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build Bundles (${{ matrix.target }})
@@ -317,15 +324,16 @@ jobs:
           retention-days: 7
 
   publish:
-    name: Publish Release Assets + latest.json
-    needs: [release-please, build]
+    name: Create Release + Publish Assets
+    needs: [release-please, sync-versions, build]
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ needs.sync-versions.outputs.sha }}
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -383,13 +391,40 @@ jobs:
             --platform "darwin-x86_64:${mac_x64_payload}:${mac_x64_sig}" \
             --out latest.json
 
-      - name: Upload assets to GitHub Release
+      - name: Extract release notes from CHANGELOG
+        id: changelog
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.release-please.outputs.tag_name }}
+          VERSION: ${{ needs.release-please.outputs.version }}
         run: |
           set -euo pipefail
 
-          # Upload all release assets
-          gh release upload "$TAG" release-assets/* --clobber
-          gh release upload "$TAG" latest.json --clobber
+          # Extract the section for this version from CHANGELOG.md
+          # Format: ## [version](url) (date) ... until next ## or EOF
+          awk -v ver="$VERSION" '
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "[" ver "]")) found=1
+            }
+            found && !/^## \[/ { print }
+          ' CHANGELOG.md > release-notes.md
+
+          # If empty, use a default message
+          if [ ! -s release-notes.md ]; then
+            echo "Release v${VERSION}" > release-notes.md
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+          SHA: ${{ needs.sync-versions.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          # Create the release with tag pointing to synced commit
+          gh release create "$TAG" \
+            --target "$SHA" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            release-assets/* \
+            latest.json
