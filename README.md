@@ -95,14 +95,10 @@ The app polls usage at configurable intervals and updates the tray menu text.
    ```
 
 2. **Choose your authentication mode**
+   - On first launch, Claudometer defaults to **Claude Code** if you already have it configured;
+     otherwise it defaults to **Claude Web**. You can change this in Settings anytime.
 
-   ### Option A: Web Mode (Session Key)
-   - Log in to [claude.ai](https://claude.ai)
-   - Open DevTools (F12 or Cmd+Option+I)
-   - Go to **Application** → **Cookies** → `https://claude.ai`
-   - Copy the `sessionKey` value
-
-   ### Option B: CLI Mode (OAuth) - Recommended
+   ### Option A: CLI Mode (OAuth) - Recommended
    - Install Claude Code: https://docs.anthropic.com/en/docs/agent-code
    - Authenticate once:
      ```bash
@@ -110,6 +106,12 @@ The app polls usage at configurable intervals and updates the tray menu text.
      # Follow OAuth flow in browser
      ```
    - Claude Code stores OAuth credentials locally after login
+
+   ### Option B: Web Mode (Session Key)
+   - Log in to [claude.ai](https://claude.ai)
+   - Open DevTools (F12 or Cmd+Option+I)
+   - Go to **Application** → **Cookies** → `https://claude.ai`
+   - Copy the `sessionKey` value
 
 3. **Run in development mode**
    ```bash

@@ -19,7 +19,6 @@ pub const KEY_WEEKLY_RESET_NOTIFIED: &str = "weeklyResetNotifiedPeriodIdByOrg";
 
 fn defaults() -> HashMap<String, JsonValue> {
     HashMap::from([
-        (KEY_USAGE_SOURCE.to_string(), json!("web")),
         (KEY_REFRESH_INTERVAL_SECONDS.to_string(), json!(60)),
         (KEY_SELECTED_ORGANIZATION_ID.to_string(), json!("")),
         (KEY_REMEMBER_SESSION_KEY.to_string(), json!(false)),

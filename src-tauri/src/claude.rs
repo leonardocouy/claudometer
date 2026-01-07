@@ -431,6 +431,10 @@ pub fn read_cli_oauth_access_token() -> Result<String, CliCredentialsError> {
     read_cli_oauth_access_token_from_path(&path)
 }
 
+pub fn cli_credentials_available() -> bool {
+    read_cli_oauth_access_token().is_ok()
+}
+
 pub(crate) fn read_cli_oauth_access_token_from_path(
     path: &Path,
 ) -> Result<String, CliCredentialsError> {

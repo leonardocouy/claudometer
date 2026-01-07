@@ -49,9 +49,9 @@ Tech choices:
 
 ## Dual Authentication Modes
 
-Claudometer supports two authentication modes that share the same `ClaudeUsageSnapshot` type but use different APIs:
+Claudometer supports two authentication modes that share the same `ClaudeUsageSnapshot` type but use different APIs. On first launch, it defaults to Claude Code when a local Claude Code session is available; otherwise it falls back to Claude Web.
 
-### Web Mode (Default)
+### Web Mode
 
 **Architecture:**
 - Uses Claude.ai web session cookie (`sessionKey`)
@@ -79,21 +79,11 @@ Claudometer supports two authentication modes that share the same `ClaudeUsageSn
 
 **Authentication Flow:**
 1. User authenticates via `claude` CLI (OAuth flow in browser)
-2. Claude CLI stores tokens in `~/.claude/.credentials.json`
-3. Claudometer reads credentials file (read-only, never modifies)
+2. Claude CLI stores tokens locally after login
+3. Claudometer reads those credentials (read-only, never modifies)
 4. Sent as `Authorization: Bearer <token>` header
 
-**Credential Location:**
-```json
-// ~/.claude/.credentials.json (managed by Claude CLI)
-{
-  "claudeAiOauth": {
-    "accessToken": "sk-ant-...",
-    "refreshToken": "sk-ant-...",
-    "expiresAt": 1234567890
-  }
-}
-```
+**Credential Location:** Managed locally by Claude Code (not stored by Claudometer).
 
 **Key Differences:**
 
@@ -103,7 +93,7 @@ Claudometer supports two authentication modes that share the same `ClaudeUsageSn
 | **Token Management** | Manual refresh needed | Auto-refresh by CLI |
 | **API Endpoint** | `claude.ai/api/*` | `api.anthropic.com/api/oauth/*` |
 | **Organizations** | Multi-org support | Single account |
-| **Persistence** | OS credential storage (`keyring`) or memory-only | CLI manages file |
+| **Persistence** | OS credential storage (`keyring`) or memory-only | Claude Code manages locally |
 | **Credential Format** | Session cookie string | OAuth access/refresh tokens |
 
 ### Routing Logic
@@ -138,7 +128,7 @@ On each refresh:
    - Fetch organizations (`GET /api/organizations`) and resolve org ID
    - Fetch usage snapshot (`GET /api/organizations/:id/usage`) and normalize
 3. CLI mode:
-   - Read OAuth credentials from `~/.claude/.credentials.json`
+   - Read OAuth credentials from the local Claude Code session
    - Fetch usage snapshot (`GET https://api.anthropic.com/api/oauth/usage`) and normalize
 4. Update tray menu text and emit `snapshot:updated` for settings UI.
 

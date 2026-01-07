@@ -1,5 +1,6 @@
 use crate::claude::{
-    read_cli_oauth_access_token, ClaudeApiClient, ClaudeWebErrorStatus, CliCredentialsError,
+    cli_credentials_available, read_cli_oauth_access_token, ClaudeApiClient, ClaudeWebErrorStatus,
+    CliCredentialsError,
 };
 use crate::redact::redact_session_key;
 use crate::settings::{
@@ -297,9 +298,18 @@ impl<R: Runtime> AppState<R> {
     }
 
     pub fn usage_source(&self) -> UsageSource {
-        match self.settings.get_string(KEY_USAGE_SOURCE).as_deref() {
-            Some("cli") => UsageSource::Cli,
-            _ => UsageSource::Web,
+        if let Some(value) = self.settings.get_string(KEY_USAGE_SOURCE) {
+            return if value == "cli" {
+                UsageSource::Cli
+            } else {
+                UsageSource::Web
+            };
+        }
+
+        if cli_credentials_available() {
+            UsageSource::Cli
+        } else {
+            UsageSource::Web
         }
     }
 }
