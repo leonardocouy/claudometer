@@ -25,12 +25,12 @@ h1 {
 }
 
 .row {
-  margin: 12px 0;
+  margin: 10px 0;
 }
 
 label {
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   color: #a9b0c0;
   margin-bottom: 6px;
 }
@@ -39,11 +39,12 @@ input[type="password"],
 input[type="number"],
 select {
   width: 100%;
-  padding: 10px;
+  padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid #2a2f3a;
   background: #151923;
   color: #e6e8ee;
+  font-size: 13px;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -57,7 +58,7 @@ select {
 .inline {
   display: flex;
   gap: 12px;
-  align-items: center;
+  align-items: flex-end;
 }
 
 .inline > * {
@@ -71,12 +72,17 @@ select {
 }
 
 button {
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid #2a2f3a;
   background: #1b2130;
   color: #e6e8ee;
   cursor: pointer;
+  font-size: 13px;
+}
+
+.buttons button {
+  flex: 1;
 }
 
 button.primary {
