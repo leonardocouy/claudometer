@@ -72,7 +72,7 @@ Claudometer supports two authentication modes that share the same `ClaudeUsageSn
 ### CLI Mode (OAuth)
 
 **Architecture:**
-- Uses OAuth tokens from Claude Code CLI
+- Uses OAuth tokens from Claude Code
 - Fetches from `https://api.anthropic.com/api/oauth/*` endpoints
 - Single account (no organization concept)
 - Credentials managed by Claude CLI
@@ -176,7 +176,7 @@ Tray menu timestamps are handled as RFC3339 strings and formatted in `src-tauri/
 
 ## API Integration
 
-Claudometer can use either Claude’s **web** endpoints (the same interface the website uses) or the Claude Code CLI OAuth usage endpoint.
+Claudometer can use either Claude’s **web** endpoints (the same interface the website uses) or the Claude Code OAuth usage endpoint.
 
 Authentication:
 

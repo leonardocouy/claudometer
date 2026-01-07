@@ -115,11 +115,11 @@ async function loadState(
   webOnlySectionEl: HTMLElement,
   cliHintEl: HTMLElement,
   sessionKeyEl: HTMLInputElement,
-  rememberKeyEl: HTMLSelectElement,
+  rememberKeyEl: HTMLInputElement,
   refreshIntervalEl: HTMLSelectElement,
-  notifyResetEl: HTMLSelectElement,
-  autostartEl: HTMLSelectElement,
-  updatesStartupEl: HTMLSelectElement,
+  notifyResetEl: HTMLInputElement,
+  autostartEl: HTMLInputElement,
+  updatesStartupEl: HTMLInputElement,
   orgSelectEl: HTMLSelectElement,
   forgetKeyButton: HTMLButtonElement,
   statusBoxEl: HTMLElement,
@@ -131,15 +131,15 @@ async function loadState(
   cliHintEl.toggleAttribute('hidden', state.usageSource !== 'cli');
   forgetKeyButton.toggleAttribute('hidden', state.usageSource !== 'web');
 
-  rememberKeyEl.value = String(Boolean(state.rememberSessionKey));
+  rememberKeyEl.checked = Boolean(state.rememberSessionKey);
   refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
-  notifyResetEl.value = String(state.notifyOnUsageReset ?? true);
-  autostartEl.value = String(state.autostartEnabled ?? false);
-  updatesStartupEl.value = String(state.checkUpdatesOnStartup ?? true);
+  notifyResetEl.checked = state.notifyOnUsageReset ?? true;
+  autostartEl.checked = state.autostartEnabled ?? false;
+  updatesStartupEl.checked = state.checkUpdatesOnStartup ?? true;
   renderOrgs(orgSelectEl, state.organizations || [], state.selectedOrganizationId);
   rememberKeyEl.disabled = !state.keyringAvailable;
   if (!state.keyringAvailable) {
-    rememberKeyEl.value = 'false';
+    rememberKeyEl.checked = false;
   }
   storageHintEl.textContent = state.keyringAvailable
     ? ''
@@ -157,10 +157,10 @@ function renderApp(root: HTMLElement): void {
       <label for="usageSource">Usage data source</label>
       <select id="usageSource">
         <option value="web">Claude Web (session key cookie)</option>
-        <option value="cli">Claude Code CLI</option>
+        <option value="cli">Claude Code</option>
       </select>
       <div class="hint" id="cliHint" hidden>
-        CLI mode reads <code>~/.claude/.credentials.json</code>. If missing, run <code>claude login</code>.
+        CLI mode uses your Claude Code login to fetch usage. If it isn't set up yet, run <code>claude login</code>.
       </div>
     </div>
 
@@ -172,12 +172,13 @@ function renderApp(root: HTMLElement): void {
     </div>
 
     <div class="row">
-      <label for="rememberKey">Remember session key</label>
-      <select id="rememberKey">
-        <option value="true">Yes (stored in OS keychain)</option>
-        <option value="false">No (memory only, lost on quit)</option>
-      </select>
-      <div class="hint" id="storageHint"></div>
+      <div class="setting">
+        <div class="setting-text">
+          <label class="setting-title" for="rememberKey">Remember session key</label>
+          <div class="hint" id="storageHint"></div>
+        </div>
+        <input id="rememberKey" class="setting-checkbox" type="checkbox" />
+      </div>
     </div>
 
     <div class="row">
@@ -200,28 +201,30 @@ function renderApp(root: HTMLElement): void {
     </div>
 
     <div class="row">
-      <label for="notifyReset">Notify when usage periods reset</label>
-      <select id="notifyReset">
-        <option value="true">Yes (default)</option>
-        <option value="false">No</option>
-      </select>
-      <div class="hint">Show notifications when 5-hour session or weekly usage windows reset</div>
+      <div class="setting">
+        <div class="setting-text">
+          <label class="setting-title" for="notifyReset">Notify when usage periods reset</label>
+          <div class="hint">Show notifications when 5-hour session or weekly usage windows reset</div>
+        </div>
+        <input id="notifyReset" class="setting-checkbox" type="checkbox" />
+      </div>
     </div>
 
-    <div class="row inline">
-      <div>
-        <label for="autostart">Start on login</label>
-        <select id="autostart">
-          <option value="false">No</option>
-          <option value="true">Yes</option>
-        </select>
+    <div class="row">
+      <div class="setting">
+        <div class="setting-text">
+          <label class="setting-title" for="autostart">Start on login</label>
+        </div>
+        <input id="autostart" class="setting-checkbox" type="checkbox" />
       </div>
-      <div>
-        <label for="updatesStartup">Check for updates on startup</label>
-        <select id="updatesStartup">
-          <option value="true">Yes</option>
-          <option value="false">No</option>
-        </select>
+    </div>
+
+    <div class="row">
+      <div class="setting">
+        <div class="setting-text">
+          <label class="setting-title" for="updatesStartup">Check for updates on startup</label>
+        </div>
+        <input id="updatesStartup" class="setting-checkbox" type="checkbox" />
       </div>
     </div>
 
@@ -234,7 +237,7 @@ function renderApp(root: HTMLElement): void {
     <div class="status" id="statusBox">Loading…</div>
 
     <div class="footer">
-      <div class="footer-tagline">Free and open source</div>
+      <div class="footer-tagline">Free and open source ❤️</div>
       <div class="footer-links">
         <span class="footer-version">v1.3.0</span>
         <span class="footer-separator">•</span>
@@ -249,11 +252,11 @@ function renderApp(root: HTMLElement): void {
   const webOnlySectionEl = el<HTMLElement>(root, '#webOnlySection');
   const cliHintEl = el<HTMLElement>(root, '#cliHint');
   const sessionKeyEl = el<HTMLInputElement>(root, '#sessionKey');
-  const rememberKeyEl = el<HTMLSelectElement>(root, '#rememberKey');
+  const rememberKeyEl = el<HTMLInputElement>(root, '#rememberKey');
   const refreshIntervalEl = el<HTMLSelectElement>(root, '#refreshInterval');
-  const notifyResetEl = el<HTMLSelectElement>(root, '#notifyReset');
-  const autostartEl = el<HTMLSelectElement>(root, '#autostart');
-  const updatesStartupEl = el<HTMLSelectElement>(root, '#updatesStartup');
+  const notifyResetEl = el<HTMLInputElement>(root, '#notifyReset');
+  const autostartEl = el<HTMLInputElement>(root, '#autostart');
+  const updatesStartupEl = el<HTMLInputElement>(root, '#updatesStartup');
   const orgSelectEl = el<HTMLSelectElement>(root, '#orgSelect');
   const statusBoxEl = el<HTMLElement>(root, '#statusBox');
   const storageHintEl = el<HTMLElement>(root, '#storageHint');
@@ -314,11 +317,11 @@ function renderApp(root: HTMLElement): void {
     const payload = {
       usageSource,
       sessionKey: usageSource === 'web' ? sessionKeyEl.value || undefined : undefined,
-      rememberSessionKey: rememberKeyEl.value === 'true',
+      rememberSessionKey: rememberKeyEl.checked,
       refreshIntervalSeconds: Number(refreshIntervalEl.value || 60),
-      notifyOnUsageReset: notifyResetEl.value === 'true',
-      autostartEnabled: autostartEl.value === 'true',
-      checkUpdatesOnStartup: updatesStartupEl.value === 'true',
+      notifyOnUsageReset: notifyResetEl.checked,
+      autostartEnabled: autostartEl.checked,
+      checkUpdatesOnStartup: updatesStartupEl.checked,
       selectedOrganizationId: usageSource === 'web' ? orgSelectEl.value || undefined : undefined,
     };
     const result = await settingsSave(payload);
