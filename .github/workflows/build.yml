@@ -28,6 +28,9 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Version sync check
+        run: bun run sync-versions:check
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
