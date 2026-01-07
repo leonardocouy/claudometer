@@ -363,14 +363,26 @@ fn map_set_org_period_id(map: &mut JsonMap<String, JsonValue>, org_id: &str, per
     map.insert(org_id.to_string(), JsonValue::String(period_id.to_string()));
 }
 
-async fn notify<R: Runtime>(app: &AppHandle<R>, body: &str) {
+async fn notify_near_limit<R: Runtime>(app: &AppHandle<R>, body: &str) {
     let notification = app.notification().builder().title("Claudometer").body(body);
 
     #[cfg(target_os = "macos")]
     let notification = notification.sound("Ping");
 
     #[cfg(target_os = "linux")]
-    let notification = notification.sound("message-new-instant");
+    let notification = notification.sound("bell");
+
+    let _ = notification.show();
+}
+
+async fn notify_usage_reset<R: Runtime>(app: &AppHandle<R>, body: &str) {
+    let notification = app.notification().builder().title("Claudometer").body(body);
+
+    #[cfg(target_os = "macos")]
+    let notification = notification.sound("Ping");
+
+    #[cfg(target_os = "linux")]
+    let notification = notification.sound("complete");
 
     let _ = notification.show();
 }
@@ -421,7 +433,7 @@ async fn maybe_notify_usage<R: Runtime>(
     });
 
     if let Some(session_period_id) = decision.session_period_id.as_deref() {
-        notify(app, "Session usage is near the limit (>= 90%).").await;
+        notify_near_limit(app, "Session usage is near the limit (>= 90%).").await;
         let mut map = session_map;
         map_set_org_period_id(&mut map, organization_id, session_period_id);
         state
@@ -430,7 +442,7 @@ async fn maybe_notify_usage<R: Runtime>(
     }
 
     if let Some(weekly_period_id) = decision.weekly_period_id.as_deref() {
-        notify(app, "Weekly usage is near the limit (>= 90%).").await;
+        notify_near_limit(app, "Weekly usage is near the limit (>= 90%).").await;
         let mut map = weekly_map;
         map_set_org_period_id(&mut map, organization_id, weekly_period_id);
         state
@@ -466,7 +478,7 @@ async fn maybe_notify_usage<R: Runtime>(
 
     if notify_on_usage_reset {
         if let Some(session_period_id) = reset_decision.session_reset_period_id.as_deref() {
-            notify(app, "Session usage window has reset.").await;
+            notify_usage_reset(app, "Session usage window has reset.").await;
             let mut map = session_reset_map;
             map_set_org_period_id(&mut map, organization_id, session_period_id);
             state
@@ -475,7 +487,7 @@ async fn maybe_notify_usage<R: Runtime>(
         }
 
         if let Some(weekly_period_id) = reset_decision.weekly_reset_period_id.as_deref() {
-            notify(app, "Weekly usage window has reset.").await;
+            notify_usage_reset(app, "Weekly usage window has reset.").await;
             let mut map = weekly_reset_map;
             map_set_org_period_id(&mut map, organization_id, weekly_period_id);
             state
