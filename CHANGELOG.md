@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/leonardocouy/claudometer/compare/v1.8.0...v1.8.1) (2026-01-07)
+
+
+### Bug Fixes
+
+* skip DMG creation on macOS to avoid hdiutil error ([a35b5a5](https://github.com/leonardocouy/claudometer/commit/a35b5a5b2f8b7d702fa53a4f10f672c54f01b16c))
+
 ## [1.8.0](https://github.com/leonardocouy/claudometer/compare/v1.7.0...v1.8.0) (2026-01-07)
 
 
