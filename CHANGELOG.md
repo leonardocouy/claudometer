@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.6.2](https://github.com/leonardocouy/claudometer/compare/v1.6.1...v1.6.2) (2026-01-07)
+
+
+### Bug Fixes
+
+* add macOS quarantine troubleshooting ([427bf20](https://github.com/leonardocouy/claudometer/commit/427bf207be9a37a2c6121be73aafc425b1294eca))
+* rename macOS bundles to include platform architecture ([d42c861](https://github.com/leonardocouy/claudometer/commit/d42c861d02363cac836de1636065fa7e0368b0a6))
+* set macOS signingIdentity placeholder ([aac0328](https://github.com/leonardocouy/claudometer/commit/aac032882891e11d7baee45df16ece9d4f3013c1))
+
 ## [1.6.1](https://github.com/leonardocouy/claudometer/compare/v1.6.0...v1.6.1) (2026-01-07)
 
 
