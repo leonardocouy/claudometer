@@ -195,5 +195,12 @@ jobs:
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
           set -euo pipefail
-          gh release upload "$TAG" artifacts/** --clobber
+
+          mapfile -d '' files < <(find artifacts -type f -print0)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "No release assets found under artifacts/"
+            exit 1
+          fi
+
+          gh release upload "$TAG" "${files[@]}" --clobber
           gh release upload "$TAG" latest.json --clobber
