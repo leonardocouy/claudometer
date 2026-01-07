@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/leonardocouy/claudometer/compare/v1.6.0...v1.6.1) (2026-01-07)
+
+
+### Bug Fixes
+
+* upload only files to release ([6a5f295](https://github.com/leonardocouy/claudometer/commit/6a5f2958520fbe9b88f0b500cb7c6441edf7b6c7))
+
 ## [1.6.0](https://github.com/leonardocouy/claudometer/compare/v1.5.0...v1.6.0) (2026-01-07)
 
 
