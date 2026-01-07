@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.5](https://github.com/leonardocouy/claudometer/compare/claudometer-v1.9.4...claudometer-v1.9.5) (2026-01-07)
+
+
+### Bug Fixes
+
+* remove Cargo.toml from release-please extra-files ([#40](https://github.com/leonardocouy/claudometer/issues/40)) ([a007718](https://github.com/leonardocouy/claudometer/commit/a00771833df24c67ac3c005480f5ad65f8380aa7))
+
 ## [1.9.4](https://github.com/leonardocouy/claudometer/compare/claudometer-v1.9.3...claudometer-v1.9.4) (2026-01-07)
 
 
