@@ -461,7 +461,7 @@ async fn maybe_notify_usage<R: Runtime>(
     }
 
     // Reset notifications (gated; no first-baseline notification).
-    let notify_on_usage_reset = state.settings.get_bool(KEY_NOTIFY_ON_USAGE_RESET, true);
+    let notify_on_usage_reset = state.settings.get_bool(KEY_NOTIFY_ON_USAGE_RESET, false);
 
     let (last_seen_session, last_seen_weekly) = {
         let guard = state.reset_baseline_by_org.lock().await;
@@ -778,7 +778,7 @@ pub async fn settings_get_state<R: Runtime>(
         usage_source,
         remember_session_key: state.settings.get_bool(KEY_REMEMBER_SESSION_KEY, false),
         refresh_interval_seconds: state.settings.get_u64(KEY_REFRESH_INTERVAL_SECONDS, 60),
-        notify_on_usage_reset: state.settings.get_bool(KEY_NOTIFY_ON_USAGE_RESET, true),
+        notify_on_usage_reset: state.settings.get_bool(KEY_NOTIFY_ON_USAGE_RESET, false),
         autostart_enabled,
         check_updates_on_startup: state.settings.get_bool(KEY_CHECK_UPDATES_ON_STARTUP, true),
         organizations,

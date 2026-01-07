@@ -22,7 +22,7 @@ fn defaults() -> HashMap<String, JsonValue> {
         (KEY_REFRESH_INTERVAL_SECONDS.to_string(), json!(60)),
         (KEY_SELECTED_ORGANIZATION_ID.to_string(), json!("")),
         (KEY_REMEMBER_SESSION_KEY.to_string(), json!(false)),
-        (KEY_NOTIFY_ON_USAGE_RESET.to_string(), json!(true)),
+        (KEY_NOTIFY_ON_USAGE_RESET.to_string(), json!(false)),
         (KEY_AUTOSTART_ENABLED.to_string(), json!(false)),
         (KEY_CHECK_UPDATES_ON_STARTUP.to_string(), json!(true)),
         (KEY_SESSION_NEAR_LIMIT_NOTIFIED.to_string(), json!({})),

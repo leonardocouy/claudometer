@@ -133,7 +133,7 @@ async function loadState(
 
   rememberKeyEl.checked = Boolean(state.rememberSessionKey);
   refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
-  notifyResetEl.checked = state.notifyOnUsageReset ?? true;
+  notifyResetEl.checked = state.notifyOnUsageReset ?? false;
   autostartEl.checked = state.autostartEnabled ?? false;
   updatesStartupEl.checked = state.checkUpdatesOnStartup ?? true;
   renderOrgs(orgSelectEl, state.organizations || [], state.selectedOrganizationId);
@@ -200,7 +200,8 @@ function renderApp(root: HTMLElement): void {
       <div class="hint">How often to check Claude usage</div>
     </div>
 
-    <div class="row">
+    <!-- TODO: Revisit usage reset notifications; hidden temporarily. -->
+    <div class="row" hidden>
       <div class="setting">
         <div class="setting-text">
           <label class="setting-title" for="notifyReset">Notify when usage periods reset</label>
