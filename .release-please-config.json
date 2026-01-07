@@ -1,10 +1,7 @@
 {
   "packages": {
     ".": {
-      "release-type": "node",
-      "extra-files": [
-        "src-tauri/tauri.conf.json"
-      ]
+      "release-type": "node"
     }
   }
 }

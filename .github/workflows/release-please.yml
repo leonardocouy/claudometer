@@ -26,9 +26,49 @@ jobs:
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  sync-versions:
+    name: Sync Tauri/Rust Versions
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Sync versions
+        run: bun run sync-versions
+
+      - name: Commit and push synced versions
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet; then
+            echo "Versions already in sync, nothing to commit."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          version="$(jq -r .version package.json)"
+          git add src-tauri/Cargo.toml src-tauri/tauri.conf.json
+          git commit -m "chore: sync Tauri/Rust versions to ${version} [skip ci]"
+          git push origin main
+
   build:
     name: Build Bundles (${{ matrix.target }})
-    needs: release-please
+    needs: [release-please, sync-versions]
     if: ${{ needs.release-please.outputs.release_created }}
     strategy:
       fail-fast: false
@@ -46,6 +86,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -282,6 +324,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: main
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
