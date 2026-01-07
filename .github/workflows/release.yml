@@ -1,89 +1,30 @@
-name: Release Please
+name: Release
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build without creating release'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
-  release-please:
-    name: Release Please
-    runs-on: ubuntu-latest
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      version: ${{ steps.release.outputs.version }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-    steps:
-      - name: Release Please
-        id: release
-        uses: googleapis/release-please-action@v4
-        with:
-          config-file: .release-please-config.json
-          manifest-file: .release-please-manifest.json
-          skip-github-release: true
-
-  sync-versions:
-    name: Sync Tauri/Rust Versions
-    needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
-    runs-on: ubuntu-latest
-    outputs:
-      sha: ${{ steps.sync.outputs.sha }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Sync versions
-        run: bun run sync-versions
-
-      - name: Commit and push synced versions
-        id: sync
-        run: |
-          set -euo pipefail
-
-          if git diff --quiet; then
-            echo "Versions already in sync, nothing to commit."
-            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          version="$(jq -r .version package.json)"
-          git add src-tauri/Cargo.toml src-tauri/tauri.conf.json
-          git commit -m "chore: sync Tauri/Rust versions to ${version} [skip ci]"
-          git push origin main
-
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
   build:
-    name: Build Bundles (${{ matrix.target }})
-    needs: [release-please, sync-versions]
-    if: ${{ needs.release-please.outputs.release_created }}
+    name: Build (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-latest
             target: darwin-aarch64
-          - os: macos-15-intel
+          - os: macos-13
             target: darwin-x86_64
           - os: ubuntu-latest
             target: linux-x86_64
@@ -93,8 +34,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: main
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -127,20 +66,13 @@ jobs:
             patchelf \
             pkg-config \
             build-essential
-
-      - name: Install libfuse fallback (Ubuntu 24.04+)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          set -euo pipefail
           sudo apt-get install -y libfuse2t64 || true
 
       - name: Enable AppImage extract-and-run (no FUSE)
         if: matrix.os == 'ubuntu-latest'
-        run: |
-          echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
+        run: echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
 
-      # macOS: Validate signing/notarization prerequisites (release builds MUST be notarized)
-      - name: Validate macOS signing + notarization secrets
+      - name: Validate macOS signing secrets
         if: startsWith(matrix.target, 'darwin')
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -151,30 +83,21 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-
           missing=0
           require_secret() {
-            local name="$1"
-            local value="${2:-}"
-            if [[ -z "$value" ]]; then
-              echo "Missing required GitHub Actions secret: $name"
+            if [[ -z "${2:-}" ]]; then
+              echo "Missing required secret: $1"
               missing=1
             fi
           }
-
           require_secret "APPLE_CERTIFICATE" "${APPLE_CERTIFICATE:-}"
           require_secret "APPLE_CERTIFICATE_PASSWORD" "${APPLE_CERTIFICATE_PASSWORD:-}"
           require_secret "KEYCHAIN_PASSWORD" "${KEYCHAIN_PASSWORD:-}"
           require_secret "APPLE_ID" "${APPLE_ID:-}"
           require_secret "APPLE_ID_PASSWORD" "${APPLE_ID_PASSWORD:-}"
-
           require_secret "APPLE_TEAM_ID" "${APPLE_TEAM_ID:-}"
+          if [[ "$missing" -ne 0 ]]; then exit 1; fi
 
-          if [[ "$missing" -ne 0 ]]; then
-            exit 1
-          fi
-
-      # macOS: Import signing certificate
       - name: Import macOS signing certificate
         if: startsWith(matrix.target, 'darwin')
         env:
@@ -183,7 +106,6 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
           set -euo pipefail
-
           printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
@@ -196,35 +118,19 @@ jobs:
 
           cert_info="$(security find-identity -v -p codesigning build.keychain | grep -m 1 'Developer ID Application' || true)"
           if [[ -z "${cert_info:-}" ]]; then
-            echo "Failed to find a 'Developer ID Application' codesigning identity in the imported keychain."
+            echo "Failed to find 'Developer ID Application' identity"
             security find-identity -v -p codesigning build.keychain || true
             exit 1
           fi
-
           cert_id="$(echo "$cert_info" | awk -F'\"' '{print $2}')"
-          if [[ -z "${cert_id:-}" ]]; then
-            echo "Failed to parse codesigning identity from: $cert_info"
-            exit 1
-          fi
-
           echo "APPLE_SIGNING_IDENTITY=$cert_id" >> "$GITHUB_ENV"
 
       - name: Build bundles
-        run: |
-          set -euo pipefail
-          bun run sync-versions
-          if [[ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
-            export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-          else
-            unset TAURI_SIGNING_PRIVATE_KEY_PASSWORD || true
-          fi
-
-          bunx tauri build --ci
+        run: bunx tauri build --ci
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # macOS notarization
           APPLE_ID: ${{ startsWith(matrix.target, 'darwin') && secrets.APPLE_ID || '' }}
           APPLE_ID_PASSWORD: ${{ startsWith(matrix.target, 'darwin') && secrets.APPLE_ID_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ startsWith(matrix.target, 'darwin') && secrets.APPLE_TEAM_ID || '' }}
@@ -237,11 +143,9 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
-
           app_path="$(find "src-tauri/target/release/bundle" -type d -name 'Claudometer.app' -print -quit || true)"
           if [[ -z "${app_path:-}" ]]; then
-            echo "Failed to locate Claudometer.app under src-tauri/target/release/bundle"
-            find "src-tauri/target/release/bundle" -maxdepth 4 -print || true
+            echo "Failed to locate Claudometer.app"
             exit 1
           fi
 
@@ -249,98 +153,69 @@ jobs:
           if [[ -n "${dmg_path:-}" ]]; then
             payload="$dmg_path"
           else
-            echo "No .dmg produced; notarizing a zipped .app instead."
             payload_dir="$(mktemp -d)"
             payload="$payload_dir/Claudometer.app.zip"
             ditto -c -k --keepParent "$app_path" "$payload"
           fi
 
-          echo "Submitting for notarization: $payload"
-          xcrun notarytool submit "$payload" \
-            --wait \
+          xcrun notarytool submit "$payload" --wait \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_ID_PASSWORD" \
             --team-id "$APPLE_TEAM_ID"
 
-          echo "Stapling notarization ticket: $app_path"
           xcrun stapler staple -v "$app_path"
-          xcrun stapler validate -v "$app_path"
-
           if [[ -n "${dmg_path:-}" ]]; then
-            echo "Stapling notarization ticket: $dmg_path"
             xcrun stapler staple -v "$dmg_path"
-            xcrun stapler validate -v "$dmg_path"
           fi
 
-      - name: Verify macOS signing + notarization
+      - name: Verify macOS signing
         if: startsWith(matrix.target, 'darwin')
         run: |
           set -euo pipefail
-
-          app_path="$(find "src-tauri/target/release/bundle" -type d -name 'Claudometer.app' -print -quit || true)"
-          if [[ -z "${app_path:-}" ]]; then
-            echo "Failed to locate Claudometer.app under src-tauri/target/release/bundle"
-            find "src-tauri/target/release/bundle" -maxdepth 4 -print || true
-            exit 1
-          fi
-
-          echo "Verifying codesign: $app_path"
+          app_path="$(find "src-tauri/target/release/bundle" -type d -name 'Claudometer.app' -print -quit)"
           codesign --verify --deep --strict --verbose=2 "$app_path"
-
-          echo "Verifying Gatekeeper assessment (spctl): $app_path"
           spctl -a -vv --type exec "$app_path"
 
           dmg_path="$(find "src-tauri/target/release/bundle" -type f -name '*.dmg' -print -quit || true)"
           if [[ -n "${dmg_path:-}" ]]; then
-            echo "Verifying Gatekeeper assessment (spctl): $dmg_path"
-            # `spctl` can be flaky in CI for DMGs (e.g. "Result too large"), so treat it as best-effort.
-            spctl -a -vvv -t install "$dmg_path" || echo "spctl DMG assessment failed (non-blocking)"
-
-            echo "Verifying stapled notarization ticket (stapler): $dmg_path"
-            # `stapler validate` is the reliable check that the notarization ticket is attached.
             xcrun stapler validate -v "$dmg_path"
-          else
-            echo "No .dmg produced; skipping DMG validation."
           fi
 
-      - name: Collect bundle artifacts
+      - name: Collect artifacts
         run: |
           set -euo pipefail
-          mkdir -p "bundle-artifacts/${{ matrix.target }}"
+          mkdir -p "artifacts/${{ matrix.target }}"
           find "src-tauri/target/release/bundle" -type f \( \
             -name '*.AppImage' -o -name '*.AppImage.sig' -o \
             -name '*.deb' -o -name '*.deb.sig' -o \
             -name '*.rpm' -o -name '*.rpm.sig' -o \
             -name '*.dmg' -o -name '*.dmg.sig' -o \
-            -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' -o \
-            -name '*.sig' \
-          \) -print -exec cp -f {} "bundle-artifacts/${{ matrix.target }}/" \;
+            -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \
+          \) -exec cp {} "artifacts/${{ matrix.target }}/" \;
 
-      - name: Upload bundle artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: bundles-${{ matrix.target }}
-          path: bundle-artifacts/${{ matrix.target }}
+          path: artifacts/${{ matrix.target }}
           retention-days: 7
 
-  publish:
-    name: Create Release + Publish Assets
-    needs: [release-please, sync-versions, build]
-    if: ${{ needs.release-please.outputs.release_created }}
+  create-release:
+    name: Create Release
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v') && !inputs.dry_run
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.sync-versions.outputs.sha }}
-          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
 
-      - name: Download bundle artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -348,14 +223,12 @@ jobs:
       - name: Prepare release assets
         run: |
           set -euo pipefail
-
-          # Flatten artifacts and rename to include platform in filename
           mkdir -p release-assets
+
           for platform_dir in artifacts/bundles-*; do
             platform=$(basename "$platform_dir" | sed 's/bundles-//')
             for file in "$platform_dir"/*; do
               filename=$(basename "$file")
-              # Only rename .app.tar.gz files (macOS bundles)
               if [[ "$filename" == "Claudometer.app.tar.gz" ]]; then
                 cp "$file" "release-assets/Claudometer-${platform}.app.tar.gz"
               elif [[ "$filename" == "Claudometer.app.tar.gz.sig" ]]; then
@@ -366,20 +239,20 @@ jobs:
             done
           done
 
+          echo "Release assets:"
+          ls -la release-assets/
+
       - name: Generate latest.json
         env:
-          TAG: ${{ needs.release-please.outputs.tag_name }}
+          TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
-          # Find the renamed files
           linux_payload="$(ls -1 release-assets/*.AppImage | head -n 1)"
           linux_sig="${linux_payload}.sig"
-
           mac_arm_payload="release-assets/Claudometer-darwin-aarch64.app.tar.gz"
           mac_arm_sig="${mac_arm_payload}.sig"
-
           mac_x64_payload="release-assets/Claudometer-darwin-x86_64.app.tar.gz"
           mac_x64_sig="${mac_x64_payload}.sig"
 
@@ -391,40 +264,51 @@ jobs:
             --platform "darwin-x86_64:${mac_x64_payload}:${mac_x64_sig}" \
             --out latest.json
 
-      - name: Extract release notes from CHANGELOG
-        id: changelog
-        env:
-          VERSION: ${{ needs.release-please.outputs.version }}
-        run: |
-          set -euo pipefail
-
-          # Extract the section for this version from CHANGELOG.md
-          # Format: ## [version](url) (date) ... until next ## or EOF
-          awk -v ver="$VERSION" '
-            /^## \[/ {
-              if (found) exit
-              if (index($0, "[" ver "]")) found=1
-            }
-            found && !/^## \[/ { print }
-          ' CHANGELOG.md > release-notes.md
-
-          # If empty, use a default message
-          if [ ! -s release-notes.md ]; then
-            echo "Release v${VERSION}" > release-notes.md
-          fi
-
       - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.release-please.outputs.tag_name }}
-          SHA: ${{ needs.sync-versions.outputs.sha }}
-        run: |
-          set -euo pipefail
-
-          # Create the release with tag pointing to synced commit
-          gh release create "$TAG" \
-            --target "$SHA" \
-            --title "$TAG" \
-            --notes-file release-notes.md \
-            release-assets/* \
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Claudometer ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            release-assets/*
             latest.json
+          body: |
+            ## Claudometer ${{ github.ref_name }}
+
+            ### Downloads
+
+            | Platform | Download |
+            |----------|----------|
+            | macOS (Apple Silicon) | `Claudometer-darwin-aarch64.dmg` |
+            | macOS (Intel) | `Claudometer-darwin-x86_64.dmg` |
+            | Linux (x86_64) | `Claudometer_*.AppImage` or `.deb` |
+
+            ### Installation
+
+            **macOS**: Download the `.dmg`, open it, and drag Claudometer to Applications.
+
+            **Linux**: Download the `.AppImage` and make it executable (`chmod +x`), or install the `.deb` package.
+
+  build-summary:
+    name: Build Summary
+    needs: [build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "## Build Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| darwin-aarch64 | ${{ needs.build.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| darwin-x86_64 | ${{ needs.build.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| linux-x86_64 | ${{ needs.build.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "📦 **Release will be created** (tag detected)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ℹ️ **No release** - push a tag (e.g., \`git tag v1.0.0 && git push --tags\`) to create a release" >> $GITHUB_STEP_SUMMARY
+          fi
