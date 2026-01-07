@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/leonardocouy/claudometer/compare/claudometer-v1.10.0...claudometer-v1.10.1) (2026-01-07)
+
+
+### Bug Fixes
+
+* create release AFTER builds complete ([#47](https://github.com/leonardocouy/claudometer/issues/47)) ([4a45acd](https://github.com/leonardocouy/claudometer/commit/4a45acd7e4e221f03a5e6df37a0447b15a5af5ea))
+
 ## [1.10.0](https://github.com/leonardocouy/claudometer/compare/claudometer-v1.9.6...claudometer-v1.10.0) (2026-01-07)
 
 
