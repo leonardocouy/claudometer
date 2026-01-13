@@ -218,6 +218,9 @@ Checklist:
 - **Auto-refresh**: Tokens are refreshed automatically by the CLI
 - **Claudometer reads only**: App only reads credentials, never modifies them
 - **No persistence**: Claudometer doesn't store or cache OAuth tokens
+- **Platform-specific credential location**:
+  - **macOS**: Reads from system Keychain (Service: `Claude Code-credentials`)
+  - **Linux**: Reads from `~/.claude/.credentials.json`
 
 ### What Gets Sent
 
@@ -286,12 +289,26 @@ Check the tray menu:
 
 ### CLI mode not working
 
-If you selected "Claude Code" but see "No OAuth credentials found":
-1. **Authenticate (or re-authenticate)**:
-   ```bash
-   claude login
-   ```
-2. **Restart app** to reload credentials
+If you selected "Claude Code" but see "Claude CLI credentials not found":
+
+**macOS:**
+Claudometer reads credentials from the system Keychain. Ensure you're logged in:
+```bash
+claude login
+```
+The credentials are stored automatically in Keychain by Claude Code.
+
+**Linux:**
+Claudometer reads from `~/.claude/.credentials.json`. Ensure the file exists:
+```bash
+ls -la ~/.claude/.credentials.json
+```
+If missing, authenticate with Claude Code:
+```bash
+claude login
+```
+
+> **Tip:** If CLI mode doesn't work, you can use **Web mode** as an alternative - just paste your `sessionKey` cookie from claude.ai.
 
 ## Roadmap
 
