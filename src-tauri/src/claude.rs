@@ -426,6 +426,44 @@ fn credentials_path() -> Result<PathBuf, CliCredentialsError> {
     Ok(PathBuf::from(home).join(CLI_CREDENTIALS_RELATIVE_PATH))
 }
 
+/// Reads Claude Code OAuth credentials from macOS Keychain.
+/// Service: "Claude Code-credentials", Account: $USER
+#[cfg(target_os = "macos")]
+fn read_cli_oauth_from_keychain() -> Result<String, CliCredentialsError> {
+    let username = std::env::var("USER").map_err(|_| CliCredentialsError::HomeMissing)?;
+
+    let output = std::process::Command::new("security")
+        .args([
+            "find-generic-password",
+            "-s",
+            "Claude Code-credentials",
+            "-a",
+            &username,
+            "-w",
+        ])
+        .output()
+        .map_err(|_| CliCredentialsError::MissingFile)?;
+
+    if !output.status.success() {
+        return Err(CliCredentialsError::MissingFile);
+    }
+
+    let json_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if json_str.is_empty() {
+        return Err(CliCredentialsError::MissingFile);
+    }
+
+    let json: Value =
+        serde_json::from_str(&json_str).map_err(|_| CliCredentialsError::InvalidJson)?;
+    extract_cli_oauth_access_token(&json).ok_or(CliCredentialsError::MissingAccessToken)
+}
+
+#[cfg(target_os = "macos")]
+pub fn read_cli_oauth_access_token() -> Result<String, CliCredentialsError> {
+    read_cli_oauth_from_keychain()
+}
+
+#[cfg(not(target_os = "macos"))]
 pub fn read_cli_oauth_access_token() -> Result<String, CliCredentialsError> {
     let path = credentials_path()?;
     read_cli_oauth_access_token_from_path(&path)
