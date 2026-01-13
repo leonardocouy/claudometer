@@ -200,11 +200,11 @@ function renderApp(root: HTMLElement): void {
       <div class="hint">How often to check Claude usage</div>
     </div>
 
-    <!-- TODO: Revisit usage reset notifications; hidden temporarily. -->
-    <div class="row" hidden>
+    <div class="row">
       <div class="setting">
         <div class="setting-text">
-          <label class="setting-title" for="notifyReset">Notify when usage periods reset</label>
+          <label class="setting-title" for="notifyReset">Notify when usage resets</label>
+          <div class="hint">Get notified when your session (5h) or weekly usage window resets</div>
         </div>
         <input id="notifyReset" class="setting-checkbox" type="checkbox" />
       </div>
