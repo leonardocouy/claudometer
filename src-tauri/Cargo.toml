@@ -29,3 +29,8 @@ thiserror = "2"
 time = { version = "0.3", features = ["formatting", "macros"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 urlencoding = "2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSAttributedString", "NSDictionary"] }
+objc2-app-kit = { version = "0.3", features = ["NSColor", "NSButton", "NSStatusItem", "NSStatusBar", "NSStatusBarButton"] }
