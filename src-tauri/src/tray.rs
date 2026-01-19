@@ -46,7 +46,9 @@ fn format_percent(value: Option<f64>) -> String {
 /// Returns percentage for Ok state, "--%" for error states.
 fn format_tray_title(snapshot: Option<&ClaudeUsageSnapshot>) -> String {
     match snapshot {
-        Some(ClaudeUsageSnapshot::Ok { session_percent, .. }) => {
+        Some(ClaudeUsageSnapshot::Ok {
+            session_percent, ..
+        }) => {
             let percent = session_percent.round() as i64;
             format!("{}%", percent)
         }
@@ -58,7 +60,9 @@ fn format_tray_title(snapshot: Option<&ClaudeUsageSnapshot>) -> String {
 /// Returns: 0 = low (green), 1 = medium (orange), 2 = high (red), -1 = unknown (gray)
 fn usage_level(snapshot: Option<&ClaudeUsageSnapshot>) -> i8 {
     match snapshot {
-        Some(ClaudeUsageSnapshot::Ok { session_percent, .. }) => {
+        Some(ClaudeUsageSnapshot::Ok {
+            session_percent, ..
+        }) => {
             if *session_percent < 50.0 {
                 0 // green
             } else if *session_percent <= 80.0 {
@@ -75,8 +79,12 @@ fn usage_level(snapshot: Option<&ClaudeUsageSnapshot>) -> i8 {
 #[cfg(target_os = "macos")]
 fn set_colored_tray_title<R: Runtime>(tray: &TrayIcon<R>, title: &str, level: i8) {
     use objc2::rc::Retained;
+    use objc2::runtime::{AnyObject, ProtocolObject};
+    use objc2_foundation::NSCopying;
 
-    tray.with_inner_tray_icon(|inner| {
+    let title_owned = title.to_string();
+
+    let _ = tray.with_inner_tray_icon(move |inner| {
         let Some(ns_status_item) = inner.ns_status_item() else {
             return;
         };
@@ -84,28 +92,42 @@ fn set_colored_tray_title<R: Runtime>(tray: &TrayIcon<R>, title: &str, level: i8
         // Safety: We're on the main thread (Tauri ensures this for tray operations)
         let mtm = unsafe { MainThreadMarker::new_unchecked() };
 
-        let Some(button) = (unsafe { ns_status_item.button(mtm) }) else {
+        let Some(button) = ns_status_item.button(mtm) else {
             return;
         };
 
         // Create color based on level
         let color: Retained<NSColor> = match level {
-            0 => unsafe { NSColor::colorWithSRGBRed_green_blue_alpha(0.298, 0.686, 0.314, 1.0) }, // green #4CAF50
-            1 => unsafe { NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 0.596, 0.0, 1.0) },     // orange #FF9800
-            2 => unsafe { NSColor::colorWithSRGBRed_green_blue_alpha(0.957, 0.263, 0.212, 1.0) }, // red #F44336
-            _ => unsafe { NSColor::colorWithSRGBRed_green_blue_alpha(0.5, 0.5, 0.5, 1.0) },       // gray
+            0 => NSColor::colorWithSRGBRed_green_blue_alpha(0.298, 0.686, 0.314, 1.0), // green #4CAF50
+            1 => NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 0.596, 0.0, 1.0), // orange #FF9800
+            2 => NSColor::colorWithSRGBRed_green_blue_alpha(0.957, 0.263, 0.212, 1.0), // red #F44336
+            _ => NSColor::colorWithSRGBRed_green_blue_alpha(0.5, 0.5, 0.5, 1.0),       // gray
         };
 
         // Create attributed string with foreground color
-        let ns_string = NSString::from_str(title);
-        let keys = [unsafe { NSForegroundColorAttributeName }];
-        let objects = [color.as_ref() as &objc2::runtime::AnyObject];
-        let attrs = unsafe { NSDictionary::dictionaryWithObjects_forKeys(&objects, &keys) };
-        let attributed_string =
-            unsafe { NSAttributedString::initWithString_attributes(mtm.alloc(), &ns_string, Some(&attrs)) };
+        let ns_string = NSString::from_str(&title_owned);
+        let key = unsafe { NSForegroundColorAttributeName };
+
+        // Create dictionary - cast types for compatibility
+        let color_ref: &NSColor = &color;
+        let key_ref: &NSString = &key;
+        let color_obj: &AnyObject =
+            unsafe { std::mem::transmute::<&NSColor, &AnyObject>(color_ref) };
+        let key_copy: &ProtocolObject<dyn NSCopying> =
+            unsafe { std::mem::transmute::<&NSString, &ProtocolObject<dyn NSCopying>>(key_ref) };
+        let attrs: Retained<NSDictionary<NSString, AnyObject>> = unsafe {
+            std::mem::transmute(
+                NSDictionary::<AnyObject, AnyObject>::dictionaryWithObject_forKey(
+                    color_obj, key_copy,
+                ),
+            )
+        };
+        let attributed_string = unsafe {
+            NSAttributedString::initWithString_attributes(mtm.alloc(), &ns_string, Some(&attrs))
+        };
 
         // Set the attributed title on the button
-        unsafe { button.setAttributedTitle(&attributed_string) };
+        button.setAttributedTitle(&attributed_string);
     });
 }
 
@@ -215,7 +237,7 @@ impl<R: Runtime> TrayUi<R> {
             .icon(icon)
             .menu(&menu)
             .tooltip("Claudometer")
-            .title("--%")  // Initial placeholder until first data fetch
+            .title("--%") // Initial placeholder until first data fetch
             .build(app)?;
 
         Ok(Self { tray })
