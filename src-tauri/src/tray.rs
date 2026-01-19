@@ -35,6 +35,28 @@ fn format_percent(value: Option<f64>) -> String {
         .unwrap_or_else(|| "--%".to_string())
 }
 
+/// Generate the tray title text based on usage snapshot.
+/// Returns colored percentage for Ok state, "--%" for error states.
+fn format_tray_title(snapshot: Option<&ClaudeUsageSnapshot>) -> String {
+    match snapshot {
+        Some(ClaudeUsageSnapshot::Ok { session_percent, .. }) => {
+            // Determine color from RAW value to avoid rounding misclassification
+            // (e.g., 49.6% rounds to 50% but should stay green since raw < 50)
+            let indicator = if *session_percent < 50.0 {
+                "🟢"  // Green circle
+            } else if *session_percent <= 80.0 {
+                "🟠"  // Orange circle
+            } else {
+                "🔴"  // Red circle
+            };
+            // Round only for display
+            let percent = session_percent.round() as i64;
+            format!("{} {}%", indicator, percent)
+        }
+        _ => "--%".to_string(),
+    }
+}
+
 fn system_locale_tag() -> Option<String> {
     for key in ["LC_TIME", "LC_ALL", "LANG"] {
         if let Ok(value) = std::env::var(key) {
@@ -141,6 +163,7 @@ impl<R: Runtime> TrayUi<R> {
             .icon(icon)
             .menu(&menu)
             .tooltip("Claudometer")
+            .title("--%")  // Initial placeholder until first data fetch
             .build(app)?;
 
         Ok(Self { tray })
@@ -152,6 +175,10 @@ impl<R: Runtime> TrayUi<R> {
         if let Ok(menu) = menu {
             let _ = self.tray.set_menu(Some(menu));
         }
+
+        // Update tray title with usage percentage
+        let title = format_tray_title(snapshot);
+        let _ = self.tray.set_title(Some(title));
     }
 }
 
@@ -411,5 +438,127 @@ mod tests {
         assert_eq!(normalize_locale_tag("pt_BR.UTF-8"), "pt_BR");
         assert_eq!(normalize_locale_tag("de-de.UTF-8"), "de_DE");
         assert_eq!(normalize_locale_tag("C.UTF-8"), "POSIX");
+    }
+
+    fn make_ok_snapshot(session_percent: f64) -> ClaudeUsageSnapshot {
+        ClaudeUsageSnapshot::Ok {
+            organization_id: "org-123".to_string(),
+            session_percent,
+            session_resets_at: Some("2026-01-07T05:00:00Z".to_string()),
+            weekly_percent: 30.0,
+            weekly_resets_at: Some("2026-01-13T00:00:00Z".to_string()),
+            models: vec![],
+            last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn format_tray_title_shows_green_below_50() {
+        let snapshot = make_ok_snapshot(25.0);
+        let title = format_tray_title(Some(&snapshot));
+        assert!(title.contains("🟢"), "Expected green indicator");
+        assert!(title.contains("25%"), "Expected 25%");
+    }
+
+    #[test]
+    fn format_tray_title_shows_green_at_49_point_9() {
+        // Edge case: 49.9% rounds to 50% but should still be green
+        let snapshot = make_ok_snapshot(49.9);
+        let title = format_tray_title(Some(&snapshot));
+        assert!(title.contains("🟢"), "49.9% should be green (< 50)");
+        assert!(title.contains("50%"), "Should display as 50% (rounded)");
+    }
+
+    #[test]
+    fn format_tray_title_shows_orange_at_50() {
+        let snapshot = make_ok_snapshot(50.0);
+        let title = format_tray_title(Some(&snapshot));
+        assert!(title.contains("🟠"), "50% should be orange");
+        assert!(title.contains("50%"));
+    }
+
+    #[test]
+    fn format_tray_title_shows_orange_at_80() {
+        let snapshot = make_ok_snapshot(80.0);
+        let title = format_tray_title(Some(&snapshot));
+        assert!(title.contains("🟠"), "80% should be orange");
+        assert!(title.contains("80%"));
+    }
+
+    #[test]
+    fn format_tray_title_shows_red_above_80() {
+        let snapshot = make_ok_snapshot(81.0);
+        let title = format_tray_title(Some(&snapshot));
+        assert!(title.contains("🔴"), "81% should be red");
+        assert!(title.contains("81%"));
+    }
+
+    #[test]
+    fn format_tray_title_shows_red_at_100() {
+        let snapshot = make_ok_snapshot(100.0);
+        let title = format_tray_title(Some(&snapshot));
+        assert!(title.contains("🔴"), "100% should be red");
+        assert!(title.contains("100%"));
+    }
+
+    #[test]
+    fn format_tray_title_shows_placeholder_for_none() {
+        let title = format_tray_title(None);
+        assert_eq!(title, "--%");
+    }
+
+    #[test]
+    fn format_tray_title_shows_placeholder_for_unauthorized() {
+        let snapshot = ClaudeUsageSnapshot::Unauthorized {
+            organization_id: None,
+            error_message: Some("Invalid session".to_string()),
+            last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+        };
+        let title = format_tray_title(Some(&snapshot));
+        assert_eq!(title, "--%");
+    }
+
+    #[test]
+    fn format_tray_title_shows_placeholder_for_missing_key() {
+        let snapshot = ClaudeUsageSnapshot::MissingKey {
+            organization_id: None,
+            error_message: None,
+            last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+        };
+        let title = format_tray_title(Some(&snapshot));
+        assert_eq!(title, "--%");
+    }
+
+    #[test]
+    fn format_tray_title_shows_placeholder_for_rate_limited() {
+        let snapshot = ClaudeUsageSnapshot::RateLimited {
+            organization_id: None,
+            error_message: Some("Too many requests".to_string()),
+            last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+        };
+        let title = format_tray_title(Some(&snapshot));
+        assert_eq!(title, "--%");
+    }
+
+    #[test]
+    fn format_tray_title_shows_placeholder_for_error() {
+        let snapshot = ClaudeUsageSnapshot::Error {
+            organization_id: None,
+            error_message: Some("Network error".to_string()),
+            last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+        };
+        let title = format_tray_title(Some(&snapshot));
+        assert_eq!(title, "--%");
+    }
+
+    #[test]
+    fn format_tray_title_rounds_percentage_correctly() {
+        let snapshot = make_ok_snapshot(75.7);
+        let title = format_tray_title(Some(&snapshot));
+        assert!(title.contains("76%"), "75.7 should round to 76");
+
+        let snapshot = make_ok_snapshot(75.4);
+        let title = format_tray_title(Some(&snapshot));
+        assert!(title.contains("75%"), "75.4 should round to 75");
     }
 }
