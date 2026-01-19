@@ -5,6 +5,13 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{image::Image, AppHandle, Runtime};
 
+#[cfg(target_os = "macos")]
+use objc2::MainThreadMarker;
+#[cfg(target_os = "macos")]
+use objc2_app_kit::{NSColor, NSForegroundColorAttributeName};
+#[cfg(target_os = "macos")]
+use objc2_foundation::{NSAttributedString, NSDictionary, NSString};
+
 pub const TRAY_ID: &str = "main";
 
 pub const ITEM_REFRESH_NOW: &str = "refresh_now";
@@ -45,6 +52,61 @@ fn format_tray_title(snapshot: Option<&ClaudeUsageSnapshot>) -> String {
         }
         _ => "--%".to_string(),
     }
+}
+
+/// Determine usage level from session percentage.
+/// Returns: 0 = low (green), 1 = medium (orange), 2 = high (red), -1 = unknown (gray)
+fn usage_level(snapshot: Option<&ClaudeUsageSnapshot>) -> i8 {
+    match snapshot {
+        Some(ClaudeUsageSnapshot::Ok { session_percent, .. }) => {
+            if *session_percent < 50.0 {
+                0 // green
+            } else if *session_percent <= 80.0 {
+                1 // orange
+            } else {
+                2 // red
+            }
+        }
+        _ => -1, // unknown/error
+    }
+}
+
+/// Set colored attributed title on macOS tray button.
+#[cfg(target_os = "macos")]
+fn set_colored_tray_title<R: Runtime>(tray: &TrayIcon<R>, title: &str, level: i8) {
+    use objc2::rc::Retained;
+
+    tray.with_inner_tray_icon(|inner| {
+        let Some(ns_status_item) = inner.ns_status_item() else {
+            return;
+        };
+
+        // Safety: We're on the main thread (Tauri ensures this for tray operations)
+        let mtm = unsafe { MainThreadMarker::new_unchecked() };
+
+        let Some(button) = (unsafe { ns_status_item.button(mtm) }) else {
+            return;
+        };
+
+        // Create color based on level
+        let color: Retained<NSColor> = match level {
+            0 => unsafe { NSColor::colorWithSRGBRed_green_blue_alpha(0.298, 0.686, 0.314, 1.0) }, // green #4CAF50
+            1 => unsafe { NSColor::colorWithSRGBRed_green_blue_alpha(1.0, 0.596, 0.0, 1.0) },     // orange #FF9800
+            2 => unsafe { NSColor::colorWithSRGBRed_green_blue_alpha(0.957, 0.263, 0.212, 1.0) }, // red #F44336
+            _ => unsafe { NSColor::colorWithSRGBRed_green_blue_alpha(0.5, 0.5, 0.5, 1.0) },       // gray
+        };
+
+        // Create attributed string with foreground color
+        let ns_string = NSString::from_str(title);
+        let keys = [unsafe { NSForegroundColorAttributeName }];
+        let objects = [color.as_ref() as &objc2::runtime::AnyObject];
+        let attrs = unsafe { NSDictionary::dictionaryWithObjects_forKeys(&objects, &keys) };
+        let attributed_string =
+            unsafe { NSAttributedString::initWithString_attributes(mtm.alloc(), &ns_string, Some(&attrs)) };
+
+        // Set the attributed title on the button
+        unsafe { button.setAttributedTitle(&attributed_string) };
+    });
 }
 
 fn system_locale_tag() -> Option<String> {
@@ -168,7 +230,18 @@ impl<R: Runtime> TrayUi<R> {
 
         // Update tray title with usage percentage
         let title = format_tray_title(snapshot);
-        let _ = self.tray.set_title(Some(title));
+        let level = usage_level(snapshot);
+
+        #[cfg(target_os = "macos")]
+        {
+            set_colored_tray_title(&self.tray, &title, level);
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = level; // suppress unused warning on non-macOS
+            let _ = self.tray.set_title(Some(title));
+        }
     }
 }
 
@@ -522,5 +595,37 @@ mod tests {
         let snapshot = make_ok_snapshot(75.4);
         let title = format_tray_title(Some(&snapshot));
         assert!(title.contains("75%"), "75.4 should round to 75");
+    }
+
+    #[test]
+    fn usage_level_returns_green_below_50() {
+        assert_eq!(usage_level(Some(&make_ok_snapshot(0.0))), 0);
+        assert_eq!(usage_level(Some(&make_ok_snapshot(25.0))), 0);
+        assert_eq!(usage_level(Some(&make_ok_snapshot(49.9))), 0);
+    }
+
+    #[test]
+    fn usage_level_returns_orange_between_50_and_80() {
+        assert_eq!(usage_level(Some(&make_ok_snapshot(50.0))), 1);
+        assert_eq!(usage_level(Some(&make_ok_snapshot(65.0))), 1);
+        assert_eq!(usage_level(Some(&make_ok_snapshot(80.0))), 1);
+    }
+
+    #[test]
+    fn usage_level_returns_red_above_80() {
+        assert_eq!(usage_level(Some(&make_ok_snapshot(80.1))), 2);
+        assert_eq!(usage_level(Some(&make_ok_snapshot(90.0))), 2);
+        assert_eq!(usage_level(Some(&make_ok_snapshot(100.0))), 2);
+    }
+
+    #[test]
+    fn usage_level_returns_unknown_for_error_states() {
+        assert_eq!(usage_level(None), -1);
+        let error = ClaudeUsageSnapshot::Error {
+            organization_id: None,
+            error_message: None,
+            last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+        };
+        assert_eq!(usage_level(Some(&error)), -1);
     }
 }
