@@ -36,22 +36,12 @@ fn format_percent(value: Option<f64>) -> String {
 }
 
 /// Generate the tray title text based on usage snapshot.
-/// Returns colored percentage for Ok state, "--%" for error states.
+/// Returns percentage for Ok state, "--%" for error states.
 fn format_tray_title(snapshot: Option<&ClaudeUsageSnapshot>) -> String {
     match snapshot {
         Some(ClaudeUsageSnapshot::Ok { session_percent, .. }) => {
-            // Determine color from RAW value to avoid rounding misclassification
-            // (e.g., 49.6% rounds to 50% but should stay green since raw < 50)
-            let indicator = if *session_percent < 50.0 {
-                "🟢"  // Green circle
-            } else if *session_percent <= 80.0 {
-                "🟠"  // Orange circle
-            } else {
-                "🔴"  // Red circle
-            };
-            // Round only for display
             let percent = session_percent.round() as i64;
-            format!("{} {}%", indicator, percent)
+            format!("{}%", percent)
         }
         _ => "--%".to_string(),
     }
@@ -453,52 +443,24 @@ mod tests {
     }
 
     #[test]
-    fn format_tray_title_shows_green_below_50() {
+    fn format_tray_title_shows_percentage() {
         let snapshot = make_ok_snapshot(25.0);
         let title = format_tray_title(Some(&snapshot));
-        assert!(title.contains("🟢"), "Expected green indicator");
-        assert!(title.contains("25%"), "Expected 25%");
+        assert_eq!(title, "25%");
     }
 
     #[test]
-    fn format_tray_title_shows_green_at_49_point_9() {
-        // Edge case: 49.9% rounds to 50% but should still be green
+    fn format_tray_title_rounds_49_point_9_to_50() {
         let snapshot = make_ok_snapshot(49.9);
         let title = format_tray_title(Some(&snapshot));
-        assert!(title.contains("🟢"), "49.9% should be green (< 50)");
-        assert!(title.contains("50%"), "Should display as 50% (rounded)");
+        assert_eq!(title, "50%");
     }
 
     #[test]
-    fn format_tray_title_shows_orange_at_50() {
-        let snapshot = make_ok_snapshot(50.0);
-        let title = format_tray_title(Some(&snapshot));
-        assert!(title.contains("🟠"), "50% should be orange");
-        assert!(title.contains("50%"));
-    }
-
-    #[test]
-    fn format_tray_title_shows_orange_at_80() {
-        let snapshot = make_ok_snapshot(80.0);
-        let title = format_tray_title(Some(&snapshot));
-        assert!(title.contains("🟠"), "80% should be orange");
-        assert!(title.contains("80%"));
-    }
-
-    #[test]
-    fn format_tray_title_shows_red_above_80() {
-        let snapshot = make_ok_snapshot(81.0);
-        let title = format_tray_title(Some(&snapshot));
-        assert!(title.contains("🔴"), "81% should be red");
-        assert!(title.contains("81%"));
-    }
-
-    #[test]
-    fn format_tray_title_shows_red_at_100() {
+    fn format_tray_title_shows_100_percent() {
         let snapshot = make_ok_snapshot(100.0);
         let title = format_tray_title(Some(&snapshot));
-        assert!(title.contains("🔴"), "100% should be red");
-        assert!(title.contains("100%"));
+        assert_eq!(title, "100%");
     }
 
     #[test]
