@@ -56,3 +56,8 @@ models/
 
 # Local secrets (DO NOT COMMIT)
 .secrets/
+
+# Claude Code commands (allow tracking)
+!.claude/
+.claude/*
+!.claude/commands/
