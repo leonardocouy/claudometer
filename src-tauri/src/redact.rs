@@ -57,3 +57,63 @@ pub fn redact_session_key(input: &str) -> Cow<'_, str> {
         Cow::Owned(redacted)
     }
 }
+
+fn redact_header_value(text: String, header: &str, replacement: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    loop {
+        let Some(idx) = rest.to_ascii_lowercase().find(&header.to_ascii_lowercase()) else {
+            out.push_str(rest);
+            break;
+        };
+        out.push_str(&rest[..idx]);
+        rest = &rest[idx..];
+
+        // Consume the header name itself as-is from original input.
+        if rest.len() < header.len() {
+            out.push_str(rest);
+            break;
+        }
+        out.push_str(&rest[..header.len()]);
+        rest = &rest[header.len()..];
+
+        // If there is a separating space, preserve it.
+        if let Some(first) = rest.chars().next() {
+            if first == ' ' {
+                out.push(' ');
+                rest = &rest[first.len_utf8()..];
+            }
+        }
+
+        // Consume until end-of-line.
+        let mut consumed = 0;
+        for ch in rest.chars() {
+            if ch == '\n' || ch == '\r' {
+                break;
+            }
+            consumed += ch.len_utf8();
+        }
+        out.push_str(replacement);
+        rest = &rest[consumed..];
+    }
+    out
+}
+
+pub fn redact_secrets(input: &str) -> Cow<'_, str> {
+    let after_session = redact_session_key(input);
+    let mut value = match after_session {
+        Cow::Borrowed(s) => s.to_string(),
+        Cow::Owned(s) => s,
+    };
+
+    value = redact_header_value(value, "Cookie:", "REDACTED");
+    value = redact_header_value(value, "cookie:", "REDACTED");
+    value = redact_header_value(value, "Authorization: Bearer", "REDACTED");
+    value = redact_header_value(value, "authorization: Bearer", "REDACTED");
+
+    if value == input {
+        Cow::Borrowed(input)
+    } else {
+        Cow::Owned(value)
+    }
+}

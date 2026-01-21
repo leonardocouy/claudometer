@@ -1,5 +1,6 @@
 mod app;
 mod claude;
+mod codex;
 mod commands;
 mod redact;
 mod settings;

@@ -1,6 +1,10 @@
 export type UsageStatus = 'ok' | 'unauthorized' | 'rate_limited' | 'error' | 'missing_key';
 
-export type UsageSource = 'web' | 'cli';
+export type UsageProvider = 'claude' | 'codex';
+
+export type UsageSource = 'web' | 'cli'; // Claude source
+
+export type CodexUsageSource = 'auto' | 'oauth' | 'web' | 'cli';
 
 export type ClaudeModelUsage = {
   name: string;
@@ -25,6 +29,25 @@ export type ClaudeUsageSnapshot =
       lastUpdatedAt: string;
       errorMessage?: string;
     };
+
+export type CodexUsageSnapshot =
+  | {
+      status: 'ok';
+      sessionPercent: number;
+      sessionResetsAt?: string;
+      weeklyPercent: number;
+      weeklyResetsAt?: string;
+      lastUpdatedAt: string;
+    }
+  | {
+      status: Exclude<UsageStatus, 'ok'>;
+      lastUpdatedAt: string;
+      errorMessage?: string;
+    };
+
+export type UsageSnapshot =
+  | ({ provider: 'claude' } & ClaudeUsageSnapshot)
+  | ({ provider: 'codex' } & CodexUsageSnapshot);
 
 export type ClaudeOrganization = { id: string; name?: string };
 

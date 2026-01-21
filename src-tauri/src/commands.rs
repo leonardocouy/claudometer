@@ -2,17 +2,20 @@ use crate::claude::{
     cli_credentials_available, read_cli_oauth_access_token, ClaudeApiClient, ClaudeWebErrorStatus,
     CliCredentialsError,
 };
-use crate::redact::redact_session_key;
+use crate::codex::{read_codex_oauth_credentials, CodexApiClient, CodexCredentialsError};
+use crate::redact::redact_secrets;
 use crate::settings::{
-    SettingsStore, KEY_AUTOSTART_ENABLED, KEY_CHECK_UPDATES_ON_STARTUP, KEY_NOTIFY_ON_USAGE_RESET,
-    KEY_REFRESH_INTERVAL_SECONDS, KEY_REMEMBER_SESSION_KEY, KEY_SELECTED_ORGANIZATION_ID,
-    KEY_SESSION_NEAR_LIMIT_NOTIFIED, KEY_SESSION_RESET_NOTIFIED, KEY_USAGE_SOURCE,
-    KEY_WEEKLY_NEAR_LIMIT_NOTIFIED, KEY_WEEKLY_RESET_NOTIFIED,
+    SettingsStore, KEY_AUTOSTART_ENABLED, KEY_CHECK_UPDATES_ON_STARTUP, KEY_CODEX_USAGE_SOURCE,
+    KEY_NOTIFY_ON_USAGE_RESET, KEY_PROVIDER, KEY_REFRESH_INTERVAL_SECONDS, KEY_REMEMBER_CODEX_COOKIE,
+    KEY_REMEMBER_SESSION_KEY, KEY_SELECTED_ORGANIZATION_ID, KEY_SESSION_NEAR_LIMIT_NOTIFIED,
+    KEY_SESSION_RESET_NOTIFIED, KEY_USAGE_SOURCE, KEY_WEEKLY_NEAR_LIMIT_NOTIFIED,
+    KEY_WEEKLY_RESET_NOTIFIED,
 };
 use crate::tray::TrayUi;
 use crate::types::{
-    ClaudeModelUsage, ClaudeOrganization, ClaudeUsageSnapshot, IpcError, IpcResult,
-    SaveSettingsPayload, SettingsState, UsageSource, UsageStatus,
+    ClaudeModelUsage, ClaudeOrganization, ClaudeUsageSnapshot, CodexUsageSnapshot, CodexUsageSource,
+    IpcError, IpcResult, SaveSettingsPayload, SettingsState, UsageProvider, UsageSnapshot,
+    UsageSource, UsageStatus,
 };
 use crate::updater;
 use crate::usage_alerts::{
@@ -33,26 +36,29 @@ const SNAPSHOT_EVENT: &str = "snapshot:updated";
 const ORGS_CACHE_TTL: Duration = Duration::from_secs(300); // 5 minutes
 
 const KEYRING_SERVICE: &str = "com.softaworks.claudometer";
-const KEYRING_USER: &str = "claude_session_key";
+pub const KEYRING_USER_CLAUDE_SESSION_KEY: &str = "claude_session_key";
+pub const KEYRING_USER_CODEX_COOKIE: &str = "codex_cookie";
 
 type CommandResult<T> = Result<T, IpcError>;
 type OrgsCacheEntry = (Vec<ClaudeOrganization>, Instant);
 type OrgsCache = Option<OrgsCacheEntry>;
 
 #[derive(Clone)]
-pub struct SessionKeyManager {
+pub struct SecretManager {
+    user: &'static str,
     in_memory: Arc<Mutex<Option<String>>>,
 }
 
-impl SessionKeyManager {
-    pub fn new() -> Self {
+impl SecretManager {
+    pub fn new(user: &'static str) -> Self {
         Self {
+            user,
             in_memory: Arc::new(Mutex::new(None)),
         }
     }
 
     fn entry(&self) -> Result<keyring::Entry, keyring::Error> {
-        keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+        keyring::Entry::new(KEYRING_SERVICE, self.user)
     }
 
     pub fn is_available(&self) -> bool {
@@ -163,11 +169,13 @@ impl RefreshBus {
 
 pub struct AppState<R: Runtime> {
     pub settings: SettingsStore<R>,
-    pub session_key: SessionKeyManager,
+    pub claude_session_key: SecretManager,
+    pub codex_cookie: SecretManager,
     pub claude: Arc<ClaudeApiClient>,
+    pub codex: Arc<CodexApiClient>,
     pub organizations: Arc<Mutex<Vec<ClaudeOrganization>>>,
     pub orgs_cache: Arc<Mutex<OrgsCache>>,
-    pub latest_snapshot: Arc<Mutex<Option<ClaudeUsageSnapshot>>>,
+    pub latest_snapshot: Arc<Mutex<Option<UsageSnapshot>>>,
     pub reset_baseline_by_org: Arc<Mutex<HashMap<String, UsageResetBaseline>>>,
     pub debug_override: Arc<Mutex<DebugOverride>>,
     pub tray: TrayUi<R>,
@@ -178,8 +186,10 @@ impl<R: Runtime> Clone for AppState<R> {
     fn clone(&self) -> Self {
         Self {
             settings: self.settings.clone(),
-            session_key: self.session_key.clone(),
+            claude_session_key: self.claude_session_key.clone(),
+            codex_cookie: self.codex_cookie.clone(),
             claude: self.claude.clone(),
+            codex: self.codex.clone(),
             organizations: self.organizations.clone(),
             orgs_cache: self.orgs_cache.clone(),
             latest_snapshot: self.latest_snapshot.clone(),
@@ -254,38 +264,52 @@ impl Default for DebugOverride {
 }
 
 impl DebugOverride {
-    pub fn snapshot(&self) -> ClaudeUsageSnapshot {
-        ClaudeUsageSnapshot::Ok {
-            organization_id: self.organization_id.clone(),
-            session_percent: self.session_percent,
-            session_resets_at: Some(self.session_resets_at.clone()),
-            weekly_percent: self.weekly_percent,
-            weekly_resets_at: Some(self.weekly_resets_at.clone()),
-            models: vec![
-                ClaudeModelUsage {
-                    name: "Sonnet".to_string(),
-                    percent: self.weekly_percent,
-                    resets_at: Some(self.weekly_resets_at.clone()),
+    pub fn usage_snapshot(&self, provider: UsageProvider) -> UsageSnapshot {
+        match provider {
+            UsageProvider::Claude => UsageSnapshot::Claude {
+                snapshot: ClaudeUsageSnapshot::Ok {
+                    organization_id: self.organization_id.clone(),
+                    session_percent: self.session_percent,
+                    session_resets_at: Some(self.session_resets_at.clone()),
+                    weekly_percent: self.weekly_percent,
+                    weekly_resets_at: Some(self.weekly_resets_at.clone()),
+                    models: vec![
+                        ClaudeModelUsage {
+                            name: "Sonnet".to_string(),
+                            percent: self.weekly_percent,
+                            resets_at: Some(self.weekly_resets_at.clone()),
+                        },
+                        ClaudeModelUsage {
+                            name: "Opus".to_string(),
+                            percent: (self.weekly_percent * 0.7).clamp(0.0, 100.0),
+                            resets_at: Some(self.weekly_resets_at.clone()),
+                        },
+                    ],
+                    last_updated_at: now_iso(),
                 },
-                ClaudeModelUsage {
-                    name: "Opus".to_string(),
-                    percent: (self.weekly_percent * 0.7).clamp(0.0, 100.0),
-                    resets_at: Some(self.weekly_resets_at.clone()),
+            },
+            UsageProvider::Codex => UsageSnapshot::Codex {
+                snapshot: CodexUsageSnapshot::Ok {
+                    session_percent: self.session_percent,
+                    session_resets_at: Some(self.session_resets_at.clone()),
+                    weekly_percent: self.weekly_percent,
+                    weekly_resets_at: Some(self.weekly_resets_at.clone()),
+                    last_updated_at: now_iso(),
                 },
-            ],
-            last_updated_at: now_iso(),
+            },
         }
     }
 }
 
 impl<R: Runtime> AppState<R> {
-    pub async fn update_snapshot(&self, app: &AppHandle<R>, snapshot: Option<ClaudeUsageSnapshot>) {
+    pub async fn update_snapshot(&self, app: &AppHandle<R>, snapshot: Option<UsageSnapshot>) {
         {
             let mut guard = self.latest_snapshot.lock().await;
             *guard = snapshot.clone();
         }
 
-        self.tray.update_snapshot(snapshot.as_ref());
+        let provider = snapshot.as_ref().map(|s| s.provider()).unwrap_or(self.provider());
+        self.tray.update_snapshot(provider, snapshot.as_ref());
         let _ = app.emit_to(EventTarget::any(), SNAPSHOT_EVENT, snapshot);
     }
 
@@ -293,8 +317,19 @@ impl<R: Runtime> AppState<R> {
         self.settings.get_bool(KEY_REMEMBER_SESSION_KEY, false)
     }
 
+    pub fn remember_codex_cookie(&self) -> bool {
+        self.settings.get_bool(KEY_REMEMBER_CODEX_COOKIE, false)
+    }
+
     pub fn selected_org_id(&self) -> Option<String> {
         self.settings.get_string(KEY_SELECTED_ORGANIZATION_ID)
+    }
+
+    pub fn provider(&self) -> UsageProvider {
+        match self.settings.get_string(KEY_PROVIDER).as_deref() {
+            Some("codex") => UsageProvider::Codex,
+            _ => UsageProvider::Claude,
+        }
     }
 
     pub fn usage_source(&self) -> UsageSource {
@@ -312,6 +347,15 @@ impl<R: Runtime> AppState<R> {
             UsageSource::Web
         }
     }
+
+    pub fn codex_usage_source(&self) -> CodexUsageSource {
+        match self.settings.get_string(KEY_CODEX_USAGE_SOURCE).as_deref() {
+            Some("oauth") => CodexUsageSource::Oauth,
+            Some("web") => CodexUsageSource::Web,
+            Some("cli") => CodexUsageSource::Cli,
+            _ => CodexUsageSource::Auto,
+        }
+    }
 }
 
 fn now_iso() -> String {
@@ -320,35 +364,52 @@ fn now_iso() -> String {
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
 }
 
-fn missing_key_snapshot() -> ClaudeUsageSnapshot {
-    ClaudeUsageSnapshot::MissingKey {
-        organization_id: None,
-        last_updated_at: now_iso(),
-        error_message: Some("Session key is not configured.".to_string()),
+fn claude_missing_key_snapshot() -> UsageSnapshot {
+    UsageSnapshot::Claude {
+        snapshot: ClaudeUsageSnapshot::MissingKey {
+            organization_id: None,
+            last_updated_at: now_iso(),
+            error_message: Some("Session key is not configured.".to_string()),
+        },
     }
 }
 
-fn unauthorized_snapshot(message: &str) -> ClaudeUsageSnapshot {
-    ClaudeUsageSnapshot::Unauthorized {
-        organization_id: None,
-        last_updated_at: now_iso(),
-        error_message: Some(message.to_string()),
+fn claude_unauthorized_snapshot(message: &str) -> UsageSnapshot {
+    UsageSnapshot::Claude {
+        snapshot: ClaudeUsageSnapshot::Unauthorized {
+            organization_id: None,
+            last_updated_at: now_iso(),
+            error_message: Some(message.to_string()),
+        },
     }
 }
 
-fn rate_limited_snapshot(message: &str) -> ClaudeUsageSnapshot {
-    ClaudeUsageSnapshot::RateLimited {
-        organization_id: None,
-        last_updated_at: now_iso(),
-        error_message: Some(message.to_string()),
+fn claude_rate_limited_snapshot(message: &str) -> UsageSnapshot {
+    UsageSnapshot::Claude {
+        snapshot: ClaudeUsageSnapshot::RateLimited {
+            organization_id: None,
+            last_updated_at: now_iso(),
+            error_message: Some(message.to_string()),
+        },
     }
 }
 
-fn error_snapshot(message: &str) -> ClaudeUsageSnapshot {
-    ClaudeUsageSnapshot::Error {
-        organization_id: None,
-        last_updated_at: now_iso(),
-        error_message: Some(message.to_string()),
+fn claude_error_snapshot(message: &str) -> UsageSnapshot {
+    UsageSnapshot::Claude {
+        snapshot: ClaudeUsageSnapshot::Error {
+            organization_id: None,
+            last_updated_at: now_iso(),
+            error_message: Some(message.to_string()),
+        },
+    }
+}
+
+fn codex_missing_cookie_snapshot(message: &str) -> UsageSnapshot {
+    UsageSnapshot::Codex {
+        snapshot: CodexUsageSnapshot::MissingKey {
+            last_updated_at: now_iso(),
+            error_message: Some(message.to_string()),
+        },
     }
 }
 
@@ -400,42 +461,77 @@ async fn notify_usage_reset<R: Runtime>(app: &AppHandle<R>, body: &str) {
 async fn maybe_notify_usage<R: Runtime>(
     app: &AppHandle<R>,
     state: &AppState<R>,
-    previous: Option<&ClaudeUsageSnapshot>,
-    current: &ClaudeUsageSnapshot,
+    previous: Option<&UsageSnapshot>,
+    current: &UsageSnapshot,
 ) {
-    let ClaudeUsageSnapshot::Ok {
-        organization_id,
-        session_percent,
-        session_resets_at,
-        weekly_percent,
-        weekly_resets_at,
-        ..
-    } = current
-    else {
-        return;
-    };
+    struct OkView<'a> {
+        provider_label: &'static str,
+        scope_id: &'a str,
+        session_percent: f64,
+        weekly_percent: f64,
+        session_resets_at: Option<&'a str>,
+        weekly_resets_at: Option<&'a str>,
+    }
 
-    let (prev_session, prev_weekly) = match previous {
-        Some(ClaudeUsageSnapshot::Ok {
-            organization_id: prev_org,
-            session_percent: ps,
-            weekly_percent: pw,
-            ..
-        }) if prev_org == organization_id => (Some(*ps), Some(*pw)),
+    fn view<'a>(snap: &'a UsageSnapshot) -> Option<OkView<'a>> {
+        match snap {
+            UsageSnapshot::Claude { snapshot } => match snapshot {
+                ClaudeUsageSnapshot::Ok {
+                    organization_id,
+                    session_percent,
+                    session_resets_at,
+                    weekly_percent,
+                    weekly_resets_at,
+                    ..
+                } => Some(OkView {
+                    provider_label: "Claude",
+                    scope_id: organization_id,
+                    session_percent: *session_percent,
+                    weekly_percent: *weekly_percent,
+                    session_resets_at: session_resets_at.as_deref(),
+                    weekly_resets_at: weekly_resets_at.as_deref(),
+                }),
+                _ => None,
+            },
+            UsageSnapshot::Codex { snapshot } => match snapshot {
+                CodexUsageSnapshot::Ok {
+                    session_percent,
+                    session_resets_at,
+                    weekly_percent,
+                    weekly_resets_at,
+                    ..
+                } => Some(OkView {
+                    provider_label: "Codex",
+                    scope_id: "codex",
+                    session_percent: *session_percent,
+                    weekly_percent: *weekly_percent,
+                    session_resets_at: session_resets_at.as_deref(),
+                    weekly_resets_at: weekly_resets_at.as_deref(),
+                }),
+                _ => None,
+            },
+        }
+    }
+
+    let Some(cur) = view(current) else { return };
+    let (prev_session, prev_weekly) = match previous.and_then(view) {
+        Some(prev) if prev.provider_label == cur.provider_label && prev.scope_id == cur.scope_id => {
+            (Some(prev.session_percent), Some(prev.weekly_percent))
+        }
         _ => (None, None),
     };
 
     // Near-limit (>= 90%) once per period per org.
     let session_map = read_period_id_map(&state.settings, KEY_SESSION_NEAR_LIMIT_NOTIFIED);
     let weekly_map = read_period_id_map(&state.settings, KEY_WEEKLY_NEAR_LIMIT_NOTIFIED);
-    let last_session_notified = map_get_org_period_id(&session_map, organization_id);
-    let last_weekly_notified = map_get_org_period_id(&weekly_map, organization_id);
+    let last_session_notified = map_get_org_period_id(&session_map, cur.scope_id);
+    let last_weekly_notified = map_get_org_period_id(&weekly_map, cur.scope_id);
 
     let decision = decide_near_limit_alerts(DecideNearLimitAlertsParams {
-        current_session_percent: *session_percent,
-        current_weekly_percent: *weekly_percent,
-        current_session_resets_at: session_resets_at.as_deref(),
-        current_weekly_resets_at: weekly_resets_at.as_deref(),
+        current_session_percent: cur.session_percent,
+        current_weekly_percent: cur.weekly_percent,
+        current_session_resets_at: cur.session_resets_at,
+        current_weekly_resets_at: cur.weekly_resets_at,
         previous_session_percent: prev_session,
         previous_weekly_percent: prev_weekly,
         last_notified_session_period_id: last_session_notified.as_deref(),
@@ -443,18 +539,32 @@ async fn maybe_notify_usage<R: Runtime>(
     });
 
     if let Some(session_period_id) = decision.session_period_id.as_deref() {
-        notify_near_limit(app, "Session usage is near the limit (>= 90%).").await;
+        notify_near_limit(
+            app,
+            &format!(
+                "{} session usage is near the limit (>= 90%).",
+                cur.provider_label
+            ),
+        )
+        .await;
         let mut map = session_map;
-        map_set_org_period_id(&mut map, organization_id, session_period_id);
+        map_set_org_period_id(&mut map, cur.scope_id, session_period_id);
         state
             .settings
             .set(KEY_SESSION_NEAR_LIMIT_NOTIFIED, JsonValue::Object(map));
     }
 
     if let Some(weekly_period_id) = decision.weekly_period_id.as_deref() {
-        notify_near_limit(app, "Weekly usage is near the limit (>= 90%).").await;
+        notify_near_limit(
+            app,
+            &format!(
+                "{} weekly usage is near the limit (>= 90%).",
+                cur.provider_label
+            ),
+        )
+        .await;
         let mut map = weekly_map;
-        map_set_org_period_id(&mut map, organization_id, weekly_period_id);
+        map_set_org_period_id(&mut map, cur.scope_id, weekly_period_id);
         state
             .settings
             .set(KEY_WEEKLY_NEAR_LIMIT_NOTIFIED, JsonValue::Object(map));
@@ -465,7 +575,7 @@ async fn maybe_notify_usage<R: Runtime>(
 
     let (last_seen_session, last_seen_weekly) = {
         let guard = state.reset_baseline_by_org.lock().await;
-        let baseline = guard.get(organization_id);
+        let baseline = guard.get(cur.scope_id);
         (
             baseline.and_then(|b| b.session_period_id.clone()),
             baseline.and_then(|b| b.weekly_period_id.clone()),
@@ -474,12 +584,12 @@ async fn maybe_notify_usage<R: Runtime>(
 
     let session_reset_map = read_period_id_map(&state.settings, KEY_SESSION_RESET_NOTIFIED);
     let weekly_reset_map = read_period_id_map(&state.settings, KEY_WEEKLY_RESET_NOTIFIED);
-    let last_session_reset_notified = map_get_org_period_id(&session_reset_map, organization_id);
-    let last_weekly_reset_notified = map_get_org_period_id(&weekly_reset_map, organization_id);
+    let last_session_reset_notified = map_get_org_period_id(&session_reset_map, cur.scope_id);
+    let last_weekly_reset_notified = map_get_org_period_id(&weekly_reset_map, cur.scope_id);
 
     let reset_decision = decide_usage_resets(DecideUsageResetsParams {
-        current_session_resets_at: session_resets_at.as_deref(),
-        current_weekly_resets_at: weekly_resets_at.as_deref(),
+        current_session_resets_at: cur.session_resets_at,
+        current_weekly_resets_at: cur.weekly_resets_at,
         last_seen_session_period_id: last_seen_session.as_deref(),
         last_seen_weekly_period_id: last_seen_weekly.as_deref(),
         last_notified_session_reset_period_id: last_session_reset_notified.as_deref(),
@@ -488,18 +598,26 @@ async fn maybe_notify_usage<R: Runtime>(
 
     if notify_on_usage_reset {
         if let Some(session_period_id) = reset_decision.session_reset_period_id.as_deref() {
-            notify_usage_reset(app, "Session usage window has reset.").await;
+            notify_usage_reset(
+                app,
+                &format!("{} session usage window has reset.", cur.provider_label),
+            )
+            .await;
             let mut map = session_reset_map;
-            map_set_org_period_id(&mut map, organization_id, session_period_id);
+            map_set_org_period_id(&mut map, cur.scope_id, session_period_id);
             state
                 .settings
                 .set(KEY_SESSION_RESET_NOTIFIED, JsonValue::Object(map));
         }
 
         if let Some(weekly_period_id) = reset_decision.weekly_reset_period_id.as_deref() {
-            notify_usage_reset(app, "Weekly usage window has reset.").await;
+            notify_usage_reset(
+                app,
+                &format!("{} weekly usage window has reset.", cur.provider_label),
+            )
+            .await;
             let mut map = weekly_reset_map;
-            map_set_org_period_id(&mut map, organization_id, weekly_period_id);
+            map_set_org_period_id(&mut map, cur.scope_id, weekly_period_id);
             state
                 .settings
                 .set(KEY_WEEKLY_RESET_NOTIFIED, JsonValue::Object(map));
@@ -509,16 +627,16 @@ async fn maybe_notify_usage<R: Runtime>(
     // Always update baseline after processing, so first observation never notifies.
     {
         let mut guard = state.reset_baseline_by_org.lock().await;
-        let entry = guard.entry(organization_id.clone()).or_default();
-        if let Some(s) = session_resets_at
-            .as_deref()
+        let entry = guard.entry(cur.scope_id.to_string()).or_default();
+        if let Some(s) = cur
+            .session_resets_at
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
         {
             entry.session_period_id = Some(s.to_string());
         }
-        if let Some(s) = weekly_resets_at
-            .as_deref()
+        if let Some(s) = cur
+            .weekly_resets_at
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
         {
@@ -527,7 +645,7 @@ async fn maybe_notify_usage<R: Runtime>(
     }
 }
 
-fn compute_next_delay_ms<R: Runtime>(state: &AppState<R>, snapshot: &ClaudeUsageSnapshot) -> u64 {
+fn compute_next_delay_ms<R: Runtime>(state: &AppState<R>, snapshot: &UsageSnapshot) -> u64 {
     let base_seconds = state
         .settings
         .get_u64(KEY_REFRESH_INTERVAL_SECONDS, 60)
@@ -573,10 +691,11 @@ async fn resolve_organization_id<R: Runtime>(
 
 async fn refresh_once<R: Runtime>(app: &AppHandle<R>, state: &AppState<R>) -> IpcResult<()> {
     let previous = state.latest_snapshot.lock().await.clone();
+    let provider = state.provider();
 
     let debug_snapshot = {
         let guard = state.debug_override.lock().await;
-        guard.active.then(|| guard.snapshot())
+        guard.active.then(|| guard.usage_snapshot(provider))
     };
     if let Some(snapshot) = debug_snapshot {
         maybe_notify_usage(app, state, previous.as_ref(), &snapshot).await;
@@ -584,104 +703,243 @@ async fn refresh_once<R: Runtime>(app: &AppHandle<R>, state: &AppState<R>) -> Ip
         return IpcResult::ok(());
     }
 
-    match state.usage_source() {
-        UsageSource::Web => {
-            let remember = state.remember_session_key();
+    match provider {
+        UsageProvider::Claude => match state.usage_source() {
+            UsageSource::Web => {
+                let remember = state.remember_session_key();
 
-            let session_key = match state.session_key.get_current(remember).await {
-                Ok(Some(k)) => k,
-                Ok(None) => {
-                    state
-                        .update_snapshot(app, Some(missing_key_snapshot()))
-                        .await;
-                    return IpcResult::ok(());
-                }
-                Err(()) => {
-                    state
-                        .update_snapshot(app, Some(missing_key_snapshot()))
-                        .await;
-                    return IpcResult::err("KEYRING", "OS keychain/secret service is unavailable.");
+                let session_key = match state.claude_session_key.get_current(remember).await {
+                    Ok(Some(k)) => k,
+                    Ok(None) => {
+                        let snapshot = claude_missing_key_snapshot();
+                        state.update_snapshot(app, Some(snapshot)).await;
+                        return IpcResult::ok(());
+                    }
+                    Err(()) => {
+                        let snapshot = claude_missing_key_snapshot();
+                        state.update_snapshot(app, Some(snapshot)).await;
+                        return IpcResult::err(
+                            "KEYRING",
+                            "OS keychain/secret service is unavailable.",
+                        );
+                    }
+                };
+
+                let org_id = match resolve_organization_id(state, &session_key).await {
+                    Ok(Some(id)) => id,
+                    Ok(None) => {
+                        let snapshot = claude_error_snapshot("No organizations found.");
+                        state.update_snapshot(app, Some(snapshot)).await;
+                        return IpcResult::ok(());
+                    }
+                    Err(ClaudeWebErrorStatus::Unauthorized) => {
+                        let snapshot = claude_unauthorized_snapshot("Unauthorized.");
+                        state.update_snapshot(app, Some(snapshot)).await;
+                        return IpcResult::ok(());
+                    }
+                    Err(ClaudeWebErrorStatus::RateLimited) => {
+                        let snapshot = claude_rate_limited_snapshot("Rate limited.");
+                        state.update_snapshot(app, Some(snapshot)).await;
+                        return IpcResult::ok(());
+                    }
+                    Err(ClaudeWebErrorStatus::Error) => {
+                        let snapshot = claude_error_snapshot("Failed to fetch organizations.");
+                        state.update_snapshot(app, Some(snapshot)).await;
+                        return IpcResult::ok(());
+                    }
+                };
+
+                let claude_snapshot = state
+                    .claude
+                    .fetch_usage_snapshot(&session_key, &org_id)
+                    .await;
+                let snapshot = UsageSnapshot::Claude {
+                    snapshot: claude_snapshot,
+                };
+                maybe_notify_usage(app, state, previous.as_ref(), &snapshot).await;
+                state.update_snapshot(app, Some(snapshot)).await;
+                IpcResult::ok(())
+            }
+            UsageSource::Cli => {
+                let access_token = match read_cli_oauth_access_token() {
+                    Ok(t) => t,
+                    Err(CliCredentialsError::HomeMissing) => {
+                        let snapshot = claude_error_snapshot(
+                            "HOME is not set; cannot locate CLI credentials.",
+                        );
+                        state.update_snapshot(app, Some(snapshot)).await;
+                        return IpcResult::ok(());
+                    }
+                    Err(CliCredentialsError::MissingFile | CliCredentialsError::MissingAccessToken) => {
+                        let snapshot = claude_unauthorized_snapshot(
+                            "Claude CLI credentials not found. Run `claude login` and try again.",
+                        );
+                        state.update_snapshot(app, Some(snapshot)).await;
+                        return IpcResult::ok(());
+                    }
+                    Err(CliCredentialsError::InvalidJson) => {
+                        let snapshot = claude_unauthorized_snapshot(
+                            "Claude CLI credentials are invalid. Re-authenticate (run `claude login`).",
+                        );
+                        state.update_snapshot(app, Some(snapshot)).await;
+                        return IpcResult::ok(());
+                    }
+                };
+
+                let claude_snapshot = state.claude.fetch_oauth_usage_snapshot(&access_token).await;
+                let snapshot = UsageSnapshot::Claude {
+                    snapshot: claude_snapshot,
+                };
+                maybe_notify_usage(app, state, previous.as_ref(), &snapshot).await;
+                state.update_snapshot(app, Some(snapshot)).await;
+                IpcResult::ok(())
+            }
+        },
+        UsageProvider::Codex => {
+            let source = state.codex_usage_source();
+
+            let try_oauth = async {
+                match read_codex_oauth_credentials() {
+                    Ok(creds) => {
+                        let snap = state
+                            .codex
+                            .fetch_oauth_usage_snapshot(
+                                &creds.access_token,
+                                creds.account_id.as_deref(),
+                            )
+                            .await;
+                        Some(UsageSnapshot::Codex { snapshot: snap })
+                    }
+                    Err(
+                        CodexCredentialsError::HomeMissing
+                        | CodexCredentialsError::MissingFile
+                        | CodexCredentialsError::MissingAccessToken,
+                    ) => None,
+                    Err(CodexCredentialsError::InvalidJson) => Some(UsageSnapshot::Codex {
+                        snapshot: CodexUsageSnapshot::Error {
+                            last_updated_at: now_iso(),
+                            error_message: Some(
+                                "Codex credentials are invalid. Re-authenticate by running `codex`."
+                                    .to_string(),
+                            ),
+                        },
+                    }),
                 }
             };
 
-            let org_id = match resolve_organization_id(state, &session_key).await {
-                Ok(Some(id)) => id,
-                Ok(None) => {
-                    state
-                        .update_snapshot(app, Some(error_snapshot("No organizations found.")))
-                        .await;
-                    return IpcResult::ok(());
+            let try_web = async {
+                let remember = state.remember_codex_cookie();
+                let cookie = match state.codex_cookie.get_current(remember).await {
+                    Ok(Some(v)) => Some(v),
+                    Ok(None) => None,
+                    Err(()) => None,
+                }?;
+                let snap = state.codex.fetch_web_cookie_usage_snapshot(&cookie).await;
+                Some(UsageSnapshot::Codex { snapshot: snap })
+            };
+
+            let try_cli = async {
+                let snap = state.codex.fetch_cli_usage_snapshot("codex").await;
+                UsageSnapshot::Codex { snapshot: snap }
+            };
+
+            let snapshot = match source {
+                CodexUsageSource::Oauth => match read_codex_oauth_credentials() {
+                    Ok(creds) => UsageSnapshot::Codex {
+                        snapshot: state
+                            .codex
+                            .fetch_oauth_usage_snapshot(
+                                &creds.access_token,
+                                creds.account_id.as_deref(),
+                            )
+                            .await,
+                    },
+                    Err(_) => UsageSnapshot::Codex {
+                        snapshot: CodexUsageSnapshot::Unauthorized {
+                            last_updated_at: now_iso(),
+                            error_message: Some(
+                                "Codex credentials not found. Run `codex` to log in.".to_string(),
+                            ),
+                        },
+                    },
+                },
+                CodexUsageSource::Web => {
+                    let remember = state.remember_codex_cookie();
+                    let cookie = match state.codex_cookie.get_current(remember).await {
+                        Ok(Some(v)) => v,
+                        Ok(None) => {
+                            let snap = codex_missing_cookie_snapshot("Codex cookie is not configured.");
+                            state.update_snapshot(app, Some(snap)).await;
+                            return IpcResult::ok(());
+                        }
+                        Err(()) => {
+                            let snap = codex_missing_cookie_snapshot("Codex cookie is not configured.");
+                            state.update_snapshot(app, Some(snap)).await;
+                            return IpcResult::err(
+                                "KEYRING",
+                                "OS keychain/secret service is unavailable.",
+                            );
+                        }
+                    };
+                    UsageSnapshot::Codex {
+                        snapshot: state.codex.fetch_web_cookie_usage_snapshot(&cookie).await,
+                    }
                 }
-                Err(ClaudeWebErrorStatus::Unauthorized) => {
-                    state
-                        .update_snapshot(app, Some(unauthorized_snapshot("Unauthorized.")))
-                        .await;
-                    return IpcResult::ok(());
-                }
-                Err(ClaudeWebErrorStatus::RateLimited) => {
-                    state
-                        .update_snapshot(app, Some(rate_limited_snapshot("Rate limited.")))
-                        .await;
-                    return IpcResult::ok(());
-                }
-                Err(ClaudeWebErrorStatus::Error) => {
-                    state
-                        .update_snapshot(
-                            app,
-                            Some(error_snapshot("Failed to fetch organizations.")),
-                        )
-                        .await;
-                    return IpcResult::ok(());
+                CodexUsageSource::Cli => try_cli.await,
+                CodexUsageSource::Auto => {
+                    let mut first_error: Option<UsageSnapshot> = None;
+
+                    if let Some(snap) = try_oauth.await {
+                        if snap.status() == UsageStatus::Ok {
+                            snap
+                        } else {
+                            first_error = Some(snap);
+                            if let Some(snap) = try_web.await {
+                                if snap.status() == UsageStatus::Ok {
+                                    snap
+                                } else {
+                                    if first_error.is_none() {
+                                        first_error = Some(snap);
+                                    }
+                                    let cli = try_cli.await;
+                                    if cli.status() == UsageStatus::Ok {
+                                        cli
+                                    } else {
+                                        first_error.unwrap_or(cli)
+                                    }
+                                }
+                            } else {
+                                let cli = try_cli.await;
+                                if cli.status() == UsageStatus::Ok {
+                                    cli
+                                } else {
+                                    first_error.unwrap_or(cli)
+                                }
+                            }
+                        }
+                    } else if let Some(snap) = try_web.await {
+                        if snap.status() == UsageStatus::Ok {
+                            snap
+                        } else {
+                            first_error = Some(snap);
+                            let cli = try_cli.await;
+                            if cli.status() == UsageStatus::Ok {
+                                cli
+                            } else {
+                                first_error.unwrap_or(cli)
+                            }
+                        }
+                    } else {
+                        let cli = try_cli.await;
+                        if cli.status() == UsageStatus::Ok {
+                            cli
+                        } else {
+                            first_error.unwrap_or(cli)
+                        }
+                    }
                 }
             };
 
-            let snapshot = state
-                .claude
-                .fetch_usage_snapshot(&session_key, &org_id)
-                .await;
-            maybe_notify_usage(app, state, previous.as_ref(), &snapshot).await;
-            state.update_snapshot(app, Some(snapshot)).await;
-            IpcResult::ok(())
-        }
-        UsageSource::Cli => {
-            let access_token = match read_cli_oauth_access_token() {
-                Ok(t) => t,
-                Err(CliCredentialsError::HomeMissing) => {
-                    state
-                        .update_snapshot(
-                            app,
-                            Some(error_snapshot(
-                                "HOME is not set; cannot locate CLI credentials.",
-                            )),
-                        )
-                        .await;
-                    return IpcResult::ok(());
-                }
-                Err(CliCredentialsError::MissingFile | CliCredentialsError::MissingAccessToken) => {
-                    state
-            .update_snapshot(
-              app,
-              Some(unauthorized_snapshot(
-                "Claude CLI credentials not found. Run `claude login` and try again.",
-              )),
-            )
-            .await;
-                    return IpcResult::ok(());
-                }
-                Err(CliCredentialsError::InvalidJson) => {
-                    state
-            .update_snapshot(
-              app,
-              Some(unauthorized_snapshot(
-                "Claude CLI credentials are invalid. Re-authenticate (run `claude login`).",
-              )),
-            )
-            .await;
-                    return IpcResult::ok(());
-                }
-            };
-
-            let snapshot = state.claude.fetch_oauth_usage_snapshot(&access_token).await;
             maybe_notify_usage(app, state, previous.as_ref(), &snapshot).await;
             state.update_snapshot(app, Some(snapshot)).await;
             IpcResult::ok(())
@@ -762,8 +1020,9 @@ pub async fn settings_get_state<R: Runtime>(
     state: State<'_, AppState<R>>,
 ) -> CommandResult<SettingsState> {
     let latest_snapshot = state.latest_snapshot.lock().await.clone();
+    let provider = state.provider();
     let usage_source = state.usage_source();
-    let organizations = if matches!(usage_source, UsageSource::Web) {
+    let organizations = if matches!(provider, UsageProvider::Claude) && matches!(usage_source, UsageSource::Web) {
         state.organizations.lock().await.clone()
     } else {
         vec![]
@@ -775,18 +1034,21 @@ pub async fn settings_get_state<R: Runtime>(
         .unwrap_or(state.settings.get_bool(KEY_AUTOSTART_ENABLED, false));
 
     Ok(SettingsState {
+        provider,
         usage_source,
         remember_session_key: state.settings.get_bool(KEY_REMEMBER_SESSION_KEY, false),
+        codex_usage_source: state.codex_usage_source(),
+        remember_codex_cookie: state.settings.get_bool(KEY_REMEMBER_CODEX_COOKIE, false),
         refresh_interval_seconds: state.settings.get_u64(KEY_REFRESH_INTERVAL_SECONDS, 60),
         notify_on_usage_reset: state.settings.get_bool(KEY_NOTIFY_ON_USAGE_RESET, false),
         autostart_enabled,
         check_updates_on_startup: state.settings.get_bool(KEY_CHECK_UPDATES_ON_STARTUP, true),
         organizations,
-        selected_organization_id: matches!(usage_source, UsageSource::Web)
+        selected_organization_id: (matches!(provider, UsageProvider::Claude) && matches!(usage_source, UsageSource::Web))
             .then(|| state.selected_org_id())
             .flatten(),
         latest_snapshot,
-        keyring_available: state.session_key.is_available(),
+        keyring_available: state.claude_session_key.is_available(),
     })
 }
 
@@ -803,20 +1065,39 @@ pub async fn settings_forget_key<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState<R>>,
 ) -> CommandResult<IpcResult<()>> {
-    let usage_source = state.usage_source();
-    let _ = state.session_key.forget_all().await;
-    state.settings.set(KEY_REMEMBER_SESSION_KEY, false);
-    state.settings.remove(KEY_SELECTED_ORGANIZATION_ID);
-    {
-        let mut guard = state.organizations.lock().await;
-        guard.clear();
-    }
-    if matches!(usage_source, UsageSource::Web) {
-        state
-            .update_snapshot(&app, Some(missing_key_snapshot()))
-            .await;
-    } else {
-        let _ = state.refresh.refresh_now().await;
+    match state.provider() {
+        UsageProvider::Claude => {
+            let usage_source = state.usage_source();
+            let _ = state.claude_session_key.forget_all().await;
+            state.settings.set(KEY_REMEMBER_SESSION_KEY, false);
+            state.settings.remove(KEY_SELECTED_ORGANIZATION_ID);
+            {
+                let mut guard = state.organizations.lock().await;
+                guard.clear();
+            }
+            if matches!(usage_source, UsageSource::Web) {
+                state
+                    .update_snapshot(&app, Some(claude_missing_key_snapshot()))
+                    .await;
+            } else {
+                let _ = state.refresh.refresh_now().await;
+            }
+        }
+        UsageProvider::Codex => {
+            let source = state.codex_usage_source();
+            let _ = state.codex_cookie.forget_all().await;
+            state.settings.set(KEY_REMEMBER_CODEX_COOKIE, false);
+            if matches!(source, CodexUsageSource::Web) {
+                state
+                    .update_snapshot(
+                        &app,
+                        Some(codex_missing_cookie_snapshot("Codex cookie is not configured.")),
+                    )
+                    .await;
+            } else {
+                let _ = state.refresh.refresh_now().await;
+            }
+        }
     }
     Ok(IpcResult::ok(()))
 }
@@ -827,8 +1108,6 @@ pub async fn settings_save<R: Runtime>(
     state: State<'_, AppState<R>>,
     payload: SaveSettingsPayload,
 ) -> CommandResult<IpcResult<()>> {
-    let usage_source = payload.usage_source;
-
     if payload.refresh_interval_seconds < 30 {
         return Ok(IpcResult::err(
             "VALIDATION",
@@ -836,22 +1115,54 @@ pub async fn settings_save<R: Runtime>(
         ));
     }
 
+    let provider = payload.provider;
+
+    state.settings.set(
+        KEY_PROVIDER,
+        match provider {
+            UsageProvider::Claude => "claude",
+            UsageProvider::Codex => "codex",
+        },
+    );
+
     state.settings.set(
         KEY_USAGE_SOURCE,
-        match usage_source {
+        match payload.usage_source {
             UsageSource::Web => "web",
             UsageSource::Cli => "cli",
         },
     );
 
-    if matches!(usage_source, UsageSource::Web)
+    state.settings.set(
+        KEY_CODEX_USAGE_SOURCE,
+        match payload.codex_usage_source {
+            CodexUsageSource::Auto => "auto",
+            CodexUsageSource::Oauth => "oauth",
+            CodexUsageSource::Web => "web",
+            CodexUsageSource::Cli => "cli",
+        },
+    );
+
+    if provider == UsageProvider::Claude
+        && matches!(payload.usage_source, UsageSource::Web)
         && payload.remember_session_key
-        && !state.session_key.is_available()
+        && !state.claude_session_key.is_available()
     {
         return Ok(IpcResult::err(
-      "KEYRING",
-      "OS keychain/secret service is unavailable. Disable “Remember session key” to continue.",
-    ));
+            "KEYRING",
+            "OS keychain/secret service is unavailable. Disable “Remember session key” to continue.",
+        ));
+    }
+
+    if provider == UsageProvider::Codex
+        && matches!(payload.codex_usage_source, CodexUsageSource::Web)
+        && payload.remember_codex_cookie
+        && !state.claude_session_key.is_available()
+    {
+        return Ok(IpcResult::err(
+            "KEYRING",
+            "OS keychain/secret service is unavailable. Disable “Remember” to continue.",
+        ));
     }
 
     // Autostart
@@ -876,116 +1187,156 @@ pub async fn settings_save<R: Runtime>(
         payload.check_updates_on_startup,
     );
 
-    if matches!(usage_source, UsageSource::Cli) {
-        state.settings.remove(KEY_SELECTED_ORGANIZATION_ID);
-        {
-            let mut guard = state.organizations.lock().await;
-            guard.clear();
-        }
-        state.invalidate_orgs_cache().await;
+    match provider {
+        UsageProvider::Claude => {
+            let usage_source = payload.usage_source;
 
-        if payload.check_updates_on_startup {
-            updater::check_for_updates_background(app.clone());
-        }
+            state
+                .settings
+                .set(KEY_REMEMBER_SESSION_KEY, payload.remember_session_key);
 
-        let _ = state.refresh.refresh_now().await;
-        return Ok(IpcResult::ok(()));
-    }
-
-    let candidate_key = payload
-        .session_key
-        .as_deref()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty());
-
-    if let Some(candidate_key) = candidate_key {
-        match state
-            .claude
-            .fetch_organizations_checked(candidate_key)
-            .await
-        {
-            Ok(orgs) => {
-                if orgs.is_empty() {
-                    return Ok(IpcResult::err(
-                        "VALIDATION",
-                        "No organizations found for this account.",
-                    ));
-                }
-
+            if matches!(usage_source, UsageSource::Cli) {
+                state.settings.remove(KEY_SELECTED_ORGANIZATION_ID);
                 {
                     let mut guard = state.organizations.lock().await;
-                    *guard = orgs.clone();
+                    guard.clear();
                 }
                 state.invalidate_orgs_cache().await;
 
-                let desired = payload
+                if payload.check_updates_on_startup {
+                    updater::check_for_updates_background(app.clone());
+                }
+
+                let _ = state.refresh.refresh_now().await;
+                return Ok(IpcResult::ok(()));
+            }
+
+            let candidate_key = payload
+                .session_key
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty());
+
+            if let Some(candidate_key) = candidate_key {
+                match state.claude.fetch_organizations_checked(candidate_key).await {
+                    Ok(orgs) => {
+                        if orgs.is_empty() {
+                            return Ok(IpcResult::err(
+                                "VALIDATION",
+                                "No organizations found for this account.",
+                            ));
+                        }
+
+                        {
+                            let mut guard = state.organizations.lock().await;
+                            *guard = orgs.clone();
+                        }
+                        state.invalidate_orgs_cache().await;
+
+                        let desired = payload
+                            .selected_organization_id
+                            .as_deref()
+                            .map(|s| s.trim())
+                            .filter(|s| !s.is_empty())
+                            .map(|s| s.to_string())
+                            .or_else(|| state.selected_org_id());
+
+                        let resolved = desired
+                            .clone()
+                            .filter(|id| orgs.iter().any(|o| o.id == *id))
+                            .or_else(|| orgs.first().map(|o| o.id.clone()));
+
+                        if let Some(org_id) = resolved.clone() {
+                            state.settings.set(KEY_SELECTED_ORGANIZATION_ID, org_id);
+                        } else {
+                            state.settings.remove(KEY_SELECTED_ORGANIZATION_ID);
+                        }
+
+                        if payload.remember_session_key {
+                            if state.claude_session_key.remember(candidate_key).await.is_err() {
+                                return Ok(IpcResult::err(
+                                    "KEYRING",
+                                    "Failed to store session key in OS keychain/secret service.",
+                                ));
+                            }
+                            state
+                                .claude_session_key
+                                .set_in_memory(Some(candidate_key.to_string()))
+                                .await;
+                        } else {
+                            state
+                                .claude_session_key
+                                .set_in_memory(Some(candidate_key.to_string()))
+                                .await;
+                            let _ = state.claude_session_key.delete_persisted().await;
+                        }
+                    }
+                    Err(ClaudeWebErrorStatus::Unauthorized) => {
+                        return Ok(IpcResult::err("UNAUTHORIZED", "Unauthorized."));
+                    }
+                    Err(ClaudeWebErrorStatus::RateLimited) => {
+                        return Ok(IpcResult::err("RATE_LIMITED", "Rate limited."));
+                    }
+                    Err(ClaudeWebErrorStatus::Error) => {
+                        return Ok(IpcResult::err("NETWORK", "Failed to validate session key."));
+                    }
+                }
+            } else {
+                if let Some(org_id) = payload
                     .selected_organization_id
                     .as_deref()
                     .map(|s| s.trim())
                     .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string())
-                    .or_else(|| state.selected_org_id());
-
-                let resolved = desired
-                    .clone()
-                    .filter(|id| orgs.iter().any(|o| o.id == *id))
-                    .or_else(|| orgs.first().map(|o| o.id.clone()));
-
-                if let Some(org_id) = resolved.clone() {
-                    state.settings.set(KEY_SELECTED_ORGANIZATION_ID, org_id);
-                } else {
-                    state.settings.remove(KEY_SELECTED_ORGANIZATION_ID);
+                {
+                    state
+                        .settings
+                        .set(KEY_SELECTED_ORGANIZATION_ID, org_id.to_string());
                 }
+                if !payload.remember_session_key {
+                    let _ = state.claude_session_key.delete_persisted().await;
+                }
+            }
+        }
+        UsageProvider::Codex => {
+            state
+                .settings
+                .set(KEY_REMEMBER_CODEX_COOKIE, payload.remember_codex_cookie);
 
-                if payload.remember_session_key {
-                    if state.session_key.remember(candidate_key).await.is_err() {
+            {
+                let mut guard = state.organizations.lock().await;
+                guard.clear();
+            }
+            state.settings.remove(KEY_SELECTED_ORGANIZATION_ID);
+            state.invalidate_orgs_cache().await;
+
+            let candidate_cookie = payload
+                .codex_cookie
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty());
+
+            if let Some(candidate_cookie) = candidate_cookie {
+                if payload.remember_codex_cookie {
+                    if state.codex_cookie.remember(candidate_cookie).await.is_err() {
                         return Ok(IpcResult::err(
                             "KEYRING",
-                            "Failed to store session key in OS keychain/secret service.",
+                            "Failed to store cookie in OS keychain/secret service.",
                         ));
                     }
                     state
-                        .session_key
-                        .set_in_memory(Some(candidate_key.to_string()))
+                        .codex_cookie
+                        .set_in_memory(Some(candidate_cookie.to_string()))
                         .await;
                 } else {
                     state
-                        .session_key
-                        .set_in_memory(Some(candidate_key.to_string()))
+                        .codex_cookie
+                        .set_in_memory(Some(candidate_cookie.to_string()))
                         .await;
-                    let _ = state.session_key.delete_persisted().await;
+                    let _ = state.codex_cookie.delete_persisted().await;
                 }
-
-                state
-                    .settings
-                    .set(KEY_REMEMBER_SESSION_KEY, payload.remember_session_key);
+            } else if !payload.remember_codex_cookie {
+                let _ = state.codex_cookie.delete_persisted().await;
             }
-            Err(ClaudeWebErrorStatus::Unauthorized) => {
-                return Ok(IpcResult::err("UNAUTHORIZED", "Unauthorized."));
-            }
-            Err(ClaudeWebErrorStatus::RateLimited) => {
-                return Ok(IpcResult::err("RATE_LIMITED", "Rate limited."));
-            }
-            Err(ClaudeWebErrorStatus::Error) => {
-                return Ok(IpcResult::err("NETWORK", "Failed to validate session key."));
-            }
-        }
-    } else {
-        if let Some(org_id) = payload
-            .selected_organization_id
-            .as_deref()
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-        {
-            state
-                .settings
-                .set(KEY_SELECTED_ORGANIZATION_ID, org_id.to_string());
-        }
-        state
-            .settings
-            .set(KEY_REMEMBER_SESSION_KEY, payload.remember_session_key);
-        if !payload.remember_session_key {
-            let _ = state.session_key.delete_persisted().await;
         }
     }
 
@@ -1001,7 +1352,7 @@ pub async fn settings_save<R: Runtime>(
 pub async fn open_settings<R: Runtime>(app: AppHandle<R>) -> CommandResult<IpcResult<()>> {
     Ok(match open_settings_window(&app) {
         Ok(()) => IpcResult::ok(()),
-        Err(e) => IpcResult::err("UNKNOWN", redact_session_key(&e.to_string()).to_string()),
+        Err(e) => IpcResult::err("UNKNOWN", redact_secrets(&e.to_string()).to_string()),
     })
 }
 

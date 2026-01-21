@@ -1,4 +1,6 @@
-use crate::types::{ClaudeUsageSnapshot, UsageStatus};
+use crate::types::{
+    ClaudeUsageSnapshot, CodexUsageSnapshot, UsageProvider, UsageSnapshot, UsageStatus,
+};
 use chrono::format::Locale;
 use chrono::{DateTime, FixedOffset, Local};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -44,34 +46,54 @@ fn format_percent(value: Option<f64>) -> String {
 
 /// Generate the tray title text based on usage snapshot.
 /// Returns percentage for Ok state, "--%" for error states.
-fn format_tray_title(snapshot: Option<&ClaudeUsageSnapshot>) -> String {
-    match snapshot {
-        Some(ClaudeUsageSnapshot::Ok {
-            session_percent, ..
-        }) => {
-            let percent = session_percent.round() as i64;
-            format!("{}%", percent)
-        }
-        _ => "--%".to_string(),
+fn provider_prefix(provider: UsageProvider) -> &'static str {
+    match provider {
+        UsageProvider::Claude => "CL",
+        UsageProvider::Codex => "CX",
     }
+}
+
+fn format_tray_title(provider: UsageProvider, snapshot: Option<&UsageSnapshot>) -> String {
+    let prefix = provider_prefix(provider);
+    let percent = match snapshot {
+        Some(UsageSnapshot::Claude {
+            snapshot: ClaudeUsageSnapshot::Ok { session_percent, .. },
+        }) => Some(*session_percent),
+        Some(UsageSnapshot::Codex {
+            snapshot: CodexUsageSnapshot::Ok { session_percent, .. },
+        }) => Some(*session_percent),
+        _ => None,
+    };
+
+    let value = percent
+        .map(|v| format!("{}%", v.round() as i64))
+        .unwrap_or_else(|| "--%".to_string());
+    format!("{prefix} {value}")
 }
 
 /// Determine usage level from session percentage.
 /// Returns: 0 = low (green), 1 = medium (orange), 2 = high (red), -1 = unknown (gray)
-fn usage_level(snapshot: Option<&ClaudeUsageSnapshot>) -> i8 {
-    match snapshot {
-        Some(ClaudeUsageSnapshot::Ok {
-            session_percent, ..
-        }) => {
-            if *session_percent < 50.0 {
-                0 // green
-            } else if *session_percent <= 80.0 {
-                1 // orange
-            } else {
-                2 // red
-            }
-        }
-        _ => -1, // unknown/error
+fn usage_level(snapshot: Option<&UsageSnapshot>) -> i8 {
+    let session_percent = match snapshot {
+        Some(UsageSnapshot::Claude {
+            snapshot: ClaudeUsageSnapshot::Ok { session_percent, .. },
+        }) => Some(*session_percent),
+        Some(UsageSnapshot::Codex {
+            snapshot: CodexUsageSnapshot::Ok { session_percent, .. },
+        }) => Some(*session_percent),
+        _ => None,
+    };
+
+    let Some(session_percent) = session_percent else {
+        return -1;
+    };
+
+    if session_percent < 50.0 {
+        0 // green
+    } else if session_percent <= 80.0 {
+        1 // orange
+    } else {
+        2 // red
     }
 }
 
@@ -229,7 +251,7 @@ fn debug_menu_enabled() -> bool {
 
 impl<R: Runtime> TrayUi<R> {
     pub fn new(app: &AppHandle<R>) -> tauri::Result<Self> {
-        let menu = build_menu(app, None)?;
+        let menu = build_menu(app, UsageProvider::Claude, None)?;
 
         let icon = Image::from_bytes(include_bytes!("../icons/icon.png"))?;
 
@@ -237,21 +259,21 @@ impl<R: Runtime> TrayUi<R> {
             .icon(icon)
             .menu(&menu)
             .tooltip("Claudometer")
-            .title("--%") // Initial placeholder until first data fetch
+            .title("CL --%") // Initial placeholder until first data fetch
             .build(app)?;
 
         Ok(Self { tray })
     }
 
-    pub fn update_snapshot(&self, snapshot: Option<&ClaudeUsageSnapshot>) {
+    pub fn update_snapshot(&self, provider: UsageProvider, snapshot: Option<&UsageSnapshot>) {
         let app = self.tray.app_handle();
-        let menu = build_menu(app, snapshot);
+        let menu = build_menu(app, provider, snapshot);
         if let Ok(menu) = menu {
             let _ = self.tray.set_menu(Some(menu));
         }
 
         // Update tray title with usage percentage
-        let title = format_tray_title(snapshot);
+        let title = format_tray_title(provider, snapshot);
         let level = usage_level(snapshot);
 
         #[cfg(target_os = "macos")]
@@ -269,16 +291,24 @@ impl<R: Runtime> TrayUi<R> {
 
 fn build_menu<R: Runtime>(
     app: &AppHandle<R>,
-    snapshot: Option<&ClaudeUsageSnapshot>,
+    provider: UsageProvider,
+    snapshot: Option<&UsageSnapshot>,
 ) -> tauri::Result<Menu<R>> {
+    let provider_label = match provider {
+        UsageProvider::Claude => "Claude",
+        UsageProvider::Codex => "Codex",
+    };
     let header_text = match snapshot {
-        None => "Claudometer - Claude Usage (no data)".to_string(),
+        None => format!("Claudometer - {provider_label} Usage (no data)"),
         Some(s) => match s.status() {
-            UsageStatus::MissingKey => "Claudometer - Claude Usage (needs session key)".to_string(),
-            UsageStatus::Unauthorized => "Claudometer - Claude Usage (unauthorized)".to_string(),
-            UsageStatus::RateLimited => "Claudometer - Claude Usage (rate limited)".to_string(),
-            UsageStatus::Error => "Claudometer - Claude Usage (error)".to_string(),
-            UsageStatus::Ok => "Claudometer - Claude Usage".to_string(),
+            UsageStatus::MissingKey => match provider {
+                UsageProvider::Claude => format!("Claudometer - {provider_label} Usage (needs session key)"),
+                UsageProvider::Codex => format!("Claudometer - {provider_label} Usage (needs cookie)"),
+            },
+            UsageStatus::Unauthorized => format!("Claudometer - {provider_label} Usage (unauthorized)"),
+            UsageStatus::RateLimited => format!("Claudometer - {provider_label} Usage (rate limited)"),
+            UsageStatus::Error => format!("Claudometer - {provider_label} Usage (error)"),
+            UsageStatus::Ok => format!("Claudometer - {provider_label} Usage"),
         },
     };
 
@@ -300,14 +330,17 @@ fn build_menu<R: Runtime>(
             "".to_string(),
             "Last updated: --".to_string(),
         ),
-        Some(ClaudeUsageSnapshot::Ok {
-            session_percent,
-            session_resets_at,
-            weekly_percent,
-            weekly_resets_at,
-            models,
-            last_updated_at,
-            ..
+        Some(UsageSnapshot::Claude {
+            snapshot:
+                ClaudeUsageSnapshot::Ok {
+                    session_percent,
+                    session_resets_at,
+                    weekly_percent,
+                    weekly_resets_at,
+                    models,
+                    last_updated_at,
+                    ..
+                },
         }) => {
             let session_time = session_resets_at
                 .as_deref()
@@ -369,15 +402,69 @@ fn build_menu<R: Runtime>(
                 format!("Last updated: {}", format_datetime_full(last_updated_at)),
             )
         }
+        Some(UsageSnapshot::Codex {
+            snapshot:
+                CodexUsageSnapshot::Ok {
+                    session_percent,
+                    session_resets_at,
+                    weekly_percent,
+                    weekly_resets_at,
+                    last_updated_at,
+                },
+        }) => {
+            let session_time = session_resets_at
+                .as_deref()
+                .and_then(format_time_short)
+                .filter(|t| !t.is_empty())
+                .map(|t| format!(" (resets {t})"))
+                .unwrap_or_default();
+            let weekly_time = weekly_resets_at
+                .as_deref()
+                .and_then(format_time_short)
+                .filter(|t| !t.is_empty())
+                .map(|t| format!(" (resets {t})"))
+                .unwrap_or_default();
+
+            (
+                format!(
+                    "Session: {}{session_time}",
+                    format_percent(Some(*session_percent))
+                ),
+                format!(
+                    "Weekly: {}{weekly_time}",
+                    format_percent(Some(*weekly_percent))
+                ),
+                vec![MenuItem::with_id(
+                    app,
+                    "model_na",
+                    "Models (weekly): (n/a)",
+                    false,
+                    None::<&str>,
+                )?],
+                "".to_string(),
+                format!("Last updated: {}", format_datetime_full(last_updated_at)),
+            )
+        }
         Some(s) => {
             let error_message = match s {
-                ClaudeUsageSnapshot::Unauthorized { error_message, .. }
-                | ClaudeUsageSnapshot::RateLimited { error_message, .. }
-                | ClaudeUsageSnapshot::Error { error_message, .. }
-                | ClaudeUsageSnapshot::MissingKey { error_message, .. } => {
-                    error_message.clone().unwrap_or_default()
-                }
-                _ => String::new(),
+                UsageSnapshot::Claude { snapshot } => match snapshot {
+                    ClaudeUsageSnapshot::Unauthorized { error_message, .. }
+                    | ClaudeUsageSnapshot::RateLimited { error_message, .. }
+                    | ClaudeUsageSnapshot::Error { error_message, .. }
+                    | ClaudeUsageSnapshot::MissingKey { error_message, .. } => {
+                        error_message.clone().unwrap_or_default()
+                    }
+                    _ => String::new(),
+                },
+                UsageSnapshot::Codex { snapshot } => match snapshot {
+                    CodexUsageSnapshot::Unauthorized { error_message, .. }
+                    | CodexUsageSnapshot::RateLimited { error_message, .. }
+                    | CodexUsageSnapshot::Error { error_message, .. }
+                    | CodexUsageSnapshot::MissingKey { error_message, .. } => {
+                        error_message.clone().unwrap_or_default()
+                    }
+                    _ => String::new(),
+                },
             };
             (
                 "Session: --%".to_string(),
@@ -390,10 +477,7 @@ fn build_menu<R: Runtime>(
                     None::<&str>,
                 )?],
                 error_message,
-                format!(
-                    "Last updated: {}",
-                    format_datetime_full(s.last_updated_at())
-                ),
+                format!("Last updated: {}", format_datetime_full(s.last_updated_at())),
             )
         }
     };
@@ -525,97 +609,107 @@ mod tests {
         assert_eq!(normalize_locale_tag("C.UTF-8"), "POSIX");
     }
 
-    fn make_ok_snapshot(session_percent: f64) -> ClaudeUsageSnapshot {
-        ClaudeUsageSnapshot::Ok {
-            organization_id: "org-123".to_string(),
-            session_percent,
-            session_resets_at: Some("2026-01-07T05:00:00Z".to_string()),
-            weekly_percent: 30.0,
-            weekly_resets_at: Some("2026-01-13T00:00:00Z".to_string()),
-            models: vec![],
-            last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+    fn make_ok_snapshot(session_percent: f64) -> UsageSnapshot {
+        UsageSnapshot::Claude {
+            snapshot: ClaudeUsageSnapshot::Ok {
+                organization_id: "org-123".to_string(),
+                session_percent,
+                session_resets_at: Some("2026-01-07T05:00:00Z".to_string()),
+                weekly_percent: 30.0,
+                weekly_resets_at: Some("2026-01-13T00:00:00Z".to_string()),
+                models: vec![],
+                last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+            },
         }
     }
 
     #[test]
     fn format_tray_title_shows_percentage() {
         let snapshot = make_ok_snapshot(25.0);
-        let title = format_tray_title(Some(&snapshot));
-        assert_eq!(title, "25%");
+        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        assert_eq!(title, "CL 25%");
     }
 
     #[test]
     fn format_tray_title_rounds_49_point_9_to_50() {
         let snapshot = make_ok_snapshot(49.9);
-        let title = format_tray_title(Some(&snapshot));
-        assert_eq!(title, "50%");
+        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        assert_eq!(title, "CL 50%");
     }
 
     #[test]
     fn format_tray_title_shows_100_percent() {
         let snapshot = make_ok_snapshot(100.0);
-        let title = format_tray_title(Some(&snapshot));
-        assert_eq!(title, "100%");
+        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        assert_eq!(title, "CL 100%");
     }
 
     #[test]
     fn format_tray_title_shows_placeholder_for_none() {
-        let title = format_tray_title(None);
-        assert_eq!(title, "--%");
+        let title = format_tray_title(UsageProvider::Claude, None);
+        assert_eq!(title, "CL --%");
     }
 
     #[test]
     fn format_tray_title_shows_placeholder_for_unauthorized() {
-        let snapshot = ClaudeUsageSnapshot::Unauthorized {
-            organization_id: None,
-            error_message: Some("Invalid session".to_string()),
-            last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+        let snapshot = UsageSnapshot::Claude {
+            snapshot: ClaudeUsageSnapshot::Unauthorized {
+                organization_id: None,
+                error_message: Some("Invalid session".to_string()),
+                last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+            },
         };
-        let title = format_tray_title(Some(&snapshot));
-        assert_eq!(title, "--%");
+        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        assert_eq!(title, "CL --%");
     }
 
     #[test]
     fn format_tray_title_shows_placeholder_for_missing_key() {
-        let snapshot = ClaudeUsageSnapshot::MissingKey {
-            organization_id: None,
-            error_message: None,
-            last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+        let snapshot = UsageSnapshot::Claude {
+            snapshot: ClaudeUsageSnapshot::MissingKey {
+                organization_id: None,
+                error_message: None,
+                last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+            },
         };
-        let title = format_tray_title(Some(&snapshot));
-        assert_eq!(title, "--%");
+        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        assert_eq!(title, "CL --%");
     }
 
     #[test]
     fn format_tray_title_shows_placeholder_for_rate_limited() {
-        let snapshot = ClaudeUsageSnapshot::RateLimited {
-            organization_id: None,
-            error_message: Some("Too many requests".to_string()),
-            last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+        let snapshot = UsageSnapshot::Claude {
+            snapshot: ClaudeUsageSnapshot::RateLimited {
+                organization_id: None,
+                error_message: Some("Too many requests".to_string()),
+                last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+            },
         };
-        let title = format_tray_title(Some(&snapshot));
-        assert_eq!(title, "--%");
+        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        assert_eq!(title, "CL --%");
     }
 
     #[test]
     fn format_tray_title_shows_placeholder_for_error() {
-        let snapshot = ClaudeUsageSnapshot::Error {
-            organization_id: None,
-            error_message: Some("Network error".to_string()),
-            last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+        let snapshot = UsageSnapshot::Claude {
+            snapshot: ClaudeUsageSnapshot::Error {
+                organization_id: None,
+                error_message: Some("Network error".to_string()),
+                last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+            },
         };
-        let title = format_tray_title(Some(&snapshot));
-        assert_eq!(title, "--%");
+        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        assert_eq!(title, "CL --%");
     }
 
     #[test]
     fn format_tray_title_rounds_percentage_correctly() {
         let snapshot = make_ok_snapshot(75.7);
-        let title = format_tray_title(Some(&snapshot));
+        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
         assert!(title.contains("76%"), "75.7 should round to 76");
 
         let snapshot = make_ok_snapshot(75.4);
-        let title = format_tray_title(Some(&snapshot));
+        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
         assert!(title.contains("75%"), "75.4 should round to 75");
     }
 
@@ -643,10 +737,12 @@ mod tests {
     #[test]
     fn usage_level_returns_unknown_for_error_states() {
         assert_eq!(usage_level(None), -1);
-        let error = ClaudeUsageSnapshot::Error {
-            organization_id: None,
-            error_message: None,
-            last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+        let error = UsageSnapshot::Claude {
+            snapshot: ClaudeUsageSnapshot::Error {
+                organization_id: None,
+                error_message: None,
+                last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+            },
         };
         assert_eq!(usage_level(Some(&error)), -1);
     }

@@ -1,5 +1,6 @@
 use crate::claude::ClaudeApiClient;
-use crate::commands::{self, AppState, RefreshBus, SessionKeyManager};
+use crate::codex::CodexApiClient;
+use crate::commands::{self, AppState, RefreshBus, SecretManager};
 use crate::settings::SettingsStore;
 use crate::tray::{self, TrayUi};
 use std::collections::HashMap;
@@ -161,13 +162,20 @@ pub fn run() {
                 tauri::Error::Setup(err.into())
             })?;
 
+            let codex = CodexApiClient::new().map_err(|e| {
+                let err: Box<dyn std::error::Error> = Box::new(e);
+                tauri::Error::Setup(err.into())
+            })?;
+
             let (tx, rx) = mpsc::unbounded_channel();
             let refresh = RefreshBus::new(tx);
 
             let state = AppState {
                 settings: settings.clone(),
-                session_key: SessionKeyManager::new(),
+                claude_session_key: SecretManager::new(commands::KEYRING_USER_CLAUDE_SESSION_KEY),
+                codex_cookie: SecretManager::new(commands::KEYRING_USER_CODEX_COOKIE),
                 claude: std::sync::Arc::new(claude),
+                codex: std::sync::Arc::new(codex),
                 organizations: std::sync::Arc::new(tokio::sync::Mutex::new(vec![])),
                 orgs_cache: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
                 latest_snapshot: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
@@ -179,6 +187,7 @@ pub fn run() {
                 refresh: refresh.clone(),
             };
 
+            state.tray.update_snapshot(state.provider(), None);
             commands::spawn_refresh_loop(app_handle.clone(), state.clone(), rx);
 
             if settings.get_bool(crate::settings::KEY_CHECK_UPDATES_ON_STARTUP, true) {

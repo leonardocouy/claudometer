@@ -1,4 +1,10 @@
-import type { ClaudeOrganization, ClaudeUsageSnapshot, UsageSource } from './types.ts';
+import type {
+  ClaudeOrganization,
+  CodexUsageSource,
+  UsageProvider,
+  UsageSnapshot,
+  UsageSource,
+} from './types.ts';
 
 export const ipcChannels = {
   settings: {
@@ -13,21 +19,28 @@ export const ipcChannels = {
 } as const;
 
 export type SettingsState = {
+  provider: UsageProvider;
   usageSource: UsageSource;
   rememberSessionKey: boolean;
+  codexUsageSource: CodexUsageSource;
+  rememberCodexCookie: boolean;
   refreshIntervalSeconds: number;
   notifyOnUsageReset: boolean;
   autostartEnabled: boolean;
   checkUpdatesOnStartup: boolean;
   organizations: ClaudeOrganization[];
   selectedOrganizationId?: string;
-  latestSnapshot: ClaudeUsageSnapshot | null;
+  latestSnapshot: UsageSnapshot | null;
   keyringAvailable: boolean;
 };
 
 export type SaveSettingsPayload = {
+  provider: UsageProvider;
   sessionKey?: string;
   rememberSessionKey: boolean;
+  codexUsageSource: CodexUsageSource;
+  codexCookie?: string;
+  rememberCodexCookie: boolean;
   refreshIntervalSeconds: number;
   notifyOnUsageReset: boolean;
   autostartEnabled: boolean;
@@ -49,7 +62,7 @@ export type IpcError = { code: IpcErrorCode; message: string };
 
 export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: IpcError };
 
-export type SnapshotUpdatedHandler = (snapshot: ClaudeUsageSnapshot | null) => void;
+export type SnapshotUpdatedHandler = (snapshot: UsageSnapshot | null) => void;
 export type Unsubscribe = () => void;
 
 export type RendererApi = {
