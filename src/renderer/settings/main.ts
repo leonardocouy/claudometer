@@ -33,10 +33,6 @@ async function settingsForgetClaudeKey(): Promise<IpcResult<null>> {
   return await invoke<IpcResult<null>>('settings_forget_claude_key');
 }
 
-async function settingsForgetCodexCookie(): Promise<IpcResult<null>> {
-  return await invoke<IpcResult<null>>('settings_forget_codex_cookie');
-}
-
 async function settingsRefreshNow(): Promise<IpcResult<null>> {
   return await invoke<IpcResult<null>>('settings_refresh_now');
 }
@@ -171,10 +167,6 @@ type Ui = {
 
   codexUsageSourceEl: HTMLSelectElement;
   codexHintEl: HTMLElement;
-  codexCookieSectionEl: HTMLElement;
-  codexCookieEl: HTMLInputElement;
-  rememberCodexCookieEl: HTMLInputElement;
-  codexStorageHintEl: HTMLElement;
 
   refreshIntervalEl: HTMLSelectElement;
   notifyResetEl: HTMLInputElement;
@@ -183,7 +175,6 @@ type Ui = {
 
   forgetKeyButton: HTMLButtonElement;
   forgetClaudeKeyButton: HTMLButtonElement;
-  forgetCodexCookieButton: HTMLButtonElement;
   statusBoxEl: HTMLElement;
 };
 
@@ -200,21 +191,13 @@ function applyVisibility(
   ui.webOnlySectionEl.toggleAttribute('hidden', !trackClaudeEnabled || claudeSource !== 'web');
   ui.cliHintEl.toggleAttribute('hidden', !trackClaudeEnabled || claudeSource !== 'cli');
 
-  const codexCookieVisible = trackCodexEnabled && (codexSource === 'web' || codexSource === 'auto');
-  ui.codexCookieSectionEl.toggleAttribute('hidden', !codexCookieVisible);
-
   ui.forgetKeyButton.toggleAttribute('hidden', true);
   ui.forgetClaudeKeyButton.toggleAttribute('hidden', !trackClaudeEnabled || claudeSource !== 'web');
-  ui.forgetCodexCookieButton.toggleAttribute('hidden', !codexCookieVisible);
 
   ui.codexHintEl.textContent =
-    codexSource === 'oauth'
-      ? 'Uses your local Codex login (reads ~/.codex/auth.json).'
-      : codexSource === 'cli'
-        ? 'Uses the local codex CLI (no network).'
-        : codexSource === 'web'
-          ? 'Uses a chatgpt.com cookie value you provide.'
-          : 'Auto tries OAuth first, then your optional cookie, then the local codex CLI.';
+    codexSource === 'cli'
+      ? 'Uses the local codex CLI (no network).'
+      : 'Uses your local Codex login (reads ~/.codex/auth.json).';
 }
 
 async function loadState(ui: Ui): Promise<SettingsState> {
@@ -232,7 +215,6 @@ async function loadState(ui: Ui): Promise<SettingsState> {
   );
 
   ui.rememberKeyEl.checked = Boolean(state.rememberSessionKey);
-  ui.rememberCodexCookieEl.checked = Boolean(state.rememberCodexCookie);
   ui.refreshIntervalEl.value = String(state.refreshIntervalSeconds || 60);
   ui.notifyResetEl.checked = state.notifyOnUsageReset ?? false;
   ui.autostartEl.checked = state.autostartEnabled ?? false;
@@ -240,21 +222,15 @@ async function loadState(ui: Ui): Promise<SettingsState> {
   renderOrgs(ui.orgSelectEl, state.organizations || [], state.selectedOrganizationId);
 
   ui.rememberKeyEl.disabled = !state.keyringAvailable;
-  ui.rememberCodexCookieEl.disabled = !state.keyringAvailable;
   if (!state.keyringAvailable) {
     ui.rememberKeyEl.checked = false;
-    ui.rememberCodexCookieEl.checked = false;
   }
   ui.claudeStorageHintEl.textContent = state.keyringAvailable
     ? ''
     : 'OS keychain/secret service is unavailable. “Remember session key” is disabled on this system.';
-  ui.codexStorageHintEl.textContent = state.keyringAvailable
-    ? ''
-    : 'OS keychain/secret service is unavailable. “Remember cookie” is disabled on this system.';
 
   setStatus(ui.statusBoxEl, renderSnapshot(state.latestSnapshot));
   ui.sessionKeyEl.value = '';
-  ui.codexCookieEl.value = '';
   return state;
 }
 
@@ -323,30 +299,10 @@ function renderApp(root: HTMLElement): void {
     <div class="row">
       <label for="codexUsageSource">Codex usage source</label>
       <select id="codexUsageSource">
-        <option value="auto">Auto (OAuth → Web cookie → CLI)</option>
         <option value="oauth">OAuth (from codex auth.json)</option>
-        <option value="web">Web (chatgpt.com cookie)</option>
         <option value="cli">CLI (local codex)</option>
       </select>
       <div class="hint" id="codexHint"></div>
-    </div>
-
-    <div id="codexCookieSection">
-    <div class="row">
-      <label for="codexCookie">ChatGPT cookie value</label>
-      <input id="codexCookie" type="password" placeholder="authjs.session-token=...; ..." autocomplete="off" />
-      <div class="hint">Paste the Cookie header value (without “Cookie:”). Stored only if "Remember" is enabled.</div>
-    </div>
-
-    <div class="row">
-      <div class="setting">
-        <div class="setting-text">
-          <label class="setting-title" for="rememberCodexCookie">Remember cookie</label>
-          <div class="hint" id="codexStorageHint"></div>
-        </div>
-        <input id="rememberCodexCookie" class="setting-checkbox" type="checkbox" />
-      </div>
-    </div>
     </div>
     </div>
 
@@ -394,7 +350,6 @@ function renderApp(root: HTMLElement): void {
       <button id="refreshNow">Refresh now</button>
       <button id="forgetKey" class="danger" hidden>Forget</button>
       <button id="forgetClaudeKey" class="danger" hidden>Forget Claude key</button>
-      <button id="forgetCodexCookie" class="danger" hidden>Forget Codex cookie</button>
       <button id="save" class="primary">Save</button>
     </div>
 
@@ -428,10 +383,6 @@ function renderApp(root: HTMLElement): void {
 
     codexUsageSourceEl: el<HTMLSelectElement>(root, '#codexUsageSource'),
     codexHintEl: el<HTMLElement>(root, '#codexHint'),
-    codexCookieSectionEl: el<HTMLElement>(root, '#codexCookieSection'),
-    codexCookieEl: el<HTMLInputElement>(root, '#codexCookie'),
-    rememberCodexCookieEl: el<HTMLInputElement>(root, '#rememberCodexCookie'),
-    codexStorageHintEl: el<HTMLElement>(root, '#codexStorageHint'),
 
     refreshIntervalEl: el<HTMLSelectElement>(root, '#refreshInterval'),
     notifyResetEl: el<HTMLInputElement>(root, '#notifyReset'),
@@ -440,7 +391,6 @@ function renderApp(root: HTMLElement): void {
 
     forgetKeyButton: el<HTMLButtonElement>(root, '#forgetKey'),
     forgetClaudeKeyButton: el<HTMLButtonElement>(root, '#forgetClaudeKey'),
-    forgetCodexCookieButton: el<HTMLButtonElement>(root, '#forgetCodexCookie'),
     statusBoxEl: el<HTMLElement>(root, '#statusBox'),
   };
 
@@ -503,12 +453,6 @@ function renderApp(root: HTMLElement): void {
     await loadState(ui);
   });
 
-  ui.forgetCodexCookieButton.addEventListener('click', async () => {
-    const result = await settingsForgetCodexCookie();
-    setResultError(ui.statusBoxEl, result);
-    await loadState(ui);
-  });
-
   saveButton.addEventListener('click', async () => {
     const usageSource = ui.usageSourceEl.value as UsageSource;
     const codexUsageSource = ui.codexUsageSourceEl.value as CodexUsageSource;
@@ -525,8 +469,6 @@ function renderApp(root: HTMLElement): void {
           : undefined,
       rememberSessionKey: ui.rememberKeyEl.checked,
       codexUsageSource,
-      codexCookie: trackCodexEnabled ? ui.codexCookieEl.value || undefined : undefined,
-      rememberCodexCookie: ui.rememberCodexCookieEl.checked,
       refreshIntervalSeconds: Number(ui.refreshIntervalEl.value || 60),
       notifyOnUsageReset: ui.notifyResetEl.checked,
       autostartEnabled: ui.autostartEl.checked,

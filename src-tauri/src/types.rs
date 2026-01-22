@@ -20,9 +20,7 @@ pub enum UsageSource {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CodexUsageSource {
-    Auto,
     Oauth,
-    Web,
     Cli,
 }
 
@@ -242,7 +240,6 @@ pub struct SettingsState {
     pub usage_source: UsageSource,
     pub remember_session_key: bool,
     pub codex_usage_source: CodexUsageSource,
-    pub remember_codex_cookie: bool,
     pub refresh_interval_seconds: u64,
     pub notify_on_usage_reset: bool,
     pub autostart_enabled: bool,
@@ -262,8 +259,6 @@ pub struct SaveSettingsPayload {
     pub session_key: Option<String>,
     pub remember_session_key: bool,
     pub codex_usage_source: CodexUsageSource,
-    pub codex_cookie: Option<String>,
-    pub remember_codex_cookie: bool,
     pub refresh_interval_seconds: u64,
     pub notify_on_usage_reset: bool,
     pub autostart_enabled: bool,

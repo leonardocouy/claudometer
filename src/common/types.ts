@@ -2,7 +2,7 @@ export type UsageStatus = 'ok' | 'unauthorized' | 'rate_limited' | 'error' | 'mi
 
 export type UsageSource = 'web' | 'cli'; // Claude source
 
-export type CodexUsageSource = 'auto' | 'oauth' | 'web' | 'cli';
+export type CodexUsageSource = 'oauth' | 'cli';
 
 export type ClaudeModelUsage = {
   name: string;

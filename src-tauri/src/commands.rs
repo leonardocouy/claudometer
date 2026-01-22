@@ -6,16 +6,16 @@ use crate::codex::{read_codex_oauth_credentials, CodexApiClient};
 use crate::redact::redact_secrets;
 use crate::settings::{
     SettingsStore, KEY_AUTOSTART_ENABLED, KEY_CHECK_UPDATES_ON_STARTUP, KEY_CODEX_USAGE_SOURCE,
-    KEY_NOTIFY_ON_USAGE_RESET, KEY_REFRESH_INTERVAL_SECONDS, KEY_REMEMBER_CODEX_COOKIE,
-    KEY_REMEMBER_SESSION_KEY, KEY_SELECTED_ORGANIZATION_ID, KEY_SESSION_NEAR_LIMIT_NOTIFIED,
-    KEY_SESSION_RESET_NOTIFIED, KEY_TRACK_CLAUDE_ENABLED, KEY_TRACK_CODEX_ENABLED, KEY_USAGE_SOURCE,
+    KEY_NOTIFY_ON_USAGE_RESET, KEY_REFRESH_INTERVAL_SECONDS, KEY_REMEMBER_SESSION_KEY,
+    KEY_SELECTED_ORGANIZATION_ID, KEY_SESSION_NEAR_LIMIT_NOTIFIED, KEY_SESSION_RESET_NOTIFIED,
+    KEY_TRACK_CLAUDE_ENABLED, KEY_TRACK_CODEX_ENABLED, KEY_USAGE_SOURCE,
     KEY_WEEKLY_NEAR_LIMIT_NOTIFIED, KEY_WEEKLY_RESET_NOTIFIED,
 };
 use crate::tray::TrayUi;
 use crate::types::{
-    ClaudeModelUsage, ClaudeOrganization, ClaudeUsageSnapshot, CodexUsageSnapshot, CodexUsageSource,
-    IpcError, IpcResult, SaveSettingsPayload, SettingsState, UsageSnapshotBundle, UsageSource,
-    UsageStatus,
+    ClaudeModelUsage, ClaudeOrganization, ClaudeUsageSnapshot, CodexUsageSnapshot,
+    CodexUsageSource, IpcError, IpcResult, SaveSettingsPayload, SettingsState, UsageSnapshotBundle,
+    UsageSource, UsageStatus,
 };
 use crate::updater;
 use crate::usage_alerts::{
@@ -37,7 +37,6 @@ const ORGS_CACHE_TTL: Duration = Duration::from_secs(300); // 5 minutes
 
 const KEYRING_SERVICE: &str = "com.softaworks.claudometer";
 pub const KEYRING_USER_CLAUDE_SESSION_KEY: &str = "claude_session_key";
-pub const KEYRING_USER_CODEX_COOKIE: &str = "codex_cookie";
 
 type CommandResult<T> = Result<T, IpcError>;
 type OrgsCacheEntry = (Vec<ClaudeOrganization>, Instant);
@@ -170,7 +169,6 @@ impl RefreshBus {
 pub struct AppState<R: Runtime> {
     pub settings: SettingsStore<R>,
     pub claude_session_key: SecretManager,
-    pub codex_cookie: SecretManager,
     pub claude: Arc<ClaudeApiClient>,
     pub codex: Arc<CodexApiClient>,
     pub organizations: Arc<Mutex<Vec<ClaudeOrganization>>>,
@@ -187,7 +185,6 @@ impl<R: Runtime> Clone for AppState<R> {
         Self {
             settings: self.settings.clone(),
             claude_session_key: self.claude_session_key.clone(),
-            codex_cookie: self.codex_cookie.clone(),
             claude: self.claude.clone(),
             codex: self.codex.clone(),
             organizations: self.organizations.clone(),
@@ -306,11 +303,7 @@ impl DebugOverride {
 }
 
 impl<R: Runtime> AppState<R> {
-    pub async fn update_snapshot(
-        &self,
-        app: &AppHandle<R>,
-        snapshot: Option<UsageSnapshotBundle>,
-    ) {
+    pub async fn update_snapshot(&self, app: &AppHandle<R>, snapshot: Option<UsageSnapshotBundle>) {
         {
             let mut guard = self.latest_snapshot.lock().await;
             *guard = snapshot.clone();
@@ -326,10 +319,6 @@ impl<R: Runtime> AppState<R> {
 
     pub fn remember_session_key(&self) -> bool {
         self.settings.get_bool(KEY_REMEMBER_SESSION_KEY, false)
-    }
-
-    pub fn remember_codex_cookie(&self) -> bool {
-        self.settings.get_bool(KEY_REMEMBER_CODEX_COOKIE, false)
     }
 
     pub fn track_claude_enabled(&self) -> bool {
@@ -363,9 +352,9 @@ impl<R: Runtime> AppState<R> {
     pub fn codex_usage_source(&self) -> CodexUsageSource {
         match self.settings.get_string(KEY_CODEX_USAGE_SOURCE).as_deref() {
             Some("oauth") => CodexUsageSource::Oauth,
-            Some("web") => CodexUsageSource::Web,
             Some("cli") => CodexUsageSource::Cli,
-            _ => CodexUsageSource::Auto,
+            // Treat unknown/legacy values (e.g. "auto") as OAuth-only.
+            _ => CodexUsageSource::Oauth,
         }
     }
 }
@@ -410,13 +399,6 @@ fn claude_rate_limited_snapshot(message: &str) -> ClaudeUsageSnapshot {
 fn claude_error_snapshot(message: &str) -> ClaudeUsageSnapshot {
     ClaudeUsageSnapshot::Error {
         organization_id: None,
-        last_updated_at: now_iso(),
-        error_message: Some(message.to_string()),
-    }
-}
-
-fn codex_missing_cookie_snapshot(message: &str) -> CodexUsageSnapshot {
-    CodexUsageSnapshot::MissingKey {
         last_updated_at: now_iso(),
         error_message: Some(message.to_string()),
     }
@@ -664,7 +646,9 @@ async fn maybe_notify_usage_bundle<R: Runtime>(
                     session_percent,
                     weekly_percent,
                     ..
-                }) if organization_id == cur.scope_id => (Some(*session_percent), Some(*weekly_percent)),
+                }) if organization_id == cur.scope_id => {
+                    (Some(*session_percent), Some(*weekly_percent))
+                }
                 _ => (None, None),
             };
             maybe_notify_ok_view(app, state, cur, prev_session, prev_weekly).await;
@@ -744,7 +728,9 @@ struct FetchSnapshot<T> {
     keyring_error: bool,
 }
 
-async fn fetch_claude_snapshot<R: Runtime>(state: &AppState<R>) -> FetchSnapshot<ClaudeUsageSnapshot> {
+async fn fetch_claude_snapshot<R: Runtime>(
+    state: &AppState<R>,
+) -> FetchSnapshot<ClaudeUsageSnapshot> {
     match state.usage_source() {
         UsageSource::Web => {
             let remember = state.remember_session_key();
@@ -799,7 +785,10 @@ async fn fetch_claude_snapshot<R: Runtime>(state: &AppState<R>) -> FetchSnapshot
             };
 
             FetchSnapshot {
-                snapshot: state.claude.fetch_usage_snapshot(&session_key, &org_id).await,
+                snapshot: state
+                    .claude
+                    .fetch_usage_snapshot(&session_key, &org_id)
+                    .await,
                 keyring_error: false,
             }
         }
@@ -840,17 +829,9 @@ async fn fetch_claude_snapshot<R: Runtime>(state: &AppState<R>) -> FetchSnapshot
     }
 }
 
-async fn fetch_codex_snapshot<R: Runtime>(state: &AppState<R>) -> FetchSnapshot<CodexUsageSnapshot> {
-    let try_cli = state.codex.fetch_cli_usage_snapshot("codex");
-    let try_web_cookie = async {
-        let remember = state.remember_codex_cookie();
-        match state.codex_cookie.get_current(remember).await {
-            Ok(Some(v)) => Ok(Some(v)),
-            Ok(None) => Ok(None),
-            Err(()) => Err(()),
-        }
-    };
-
+async fn fetch_codex_snapshot<R: Runtime>(
+    state: &AppState<R>,
+) -> FetchSnapshot<CodexUsageSnapshot> {
     match state.codex_usage_source() {
         CodexUsageSource::Oauth => match read_codex_oauth_credentials() {
             Ok(creds) => FetchSnapshot {
@@ -870,76 +851,10 @@ async fn fetch_codex_snapshot<R: Runtime>(state: &AppState<R>) -> FetchSnapshot<
                 keyring_error: false,
             },
         },
-        CodexUsageSource::Web => {
-            let remember = state.remember_codex_cookie();
-            let cookie = match state.codex_cookie.get_current(remember).await {
-                Ok(Some(v)) => v,
-                Ok(None) => {
-                    return FetchSnapshot {
-                        snapshot: codex_missing_cookie_snapshot("Codex cookie is not configured."),
-                        keyring_error: false,
-                    };
-                }
-                Err(()) => {
-                    return FetchSnapshot {
-                        snapshot: codex_missing_cookie_snapshot(
-                            "OS keychain/secret service is unavailable.",
-                        ),
-                        keyring_error: true,
-                    };
-                }
-            };
-
-            FetchSnapshot {
-                snapshot: state.codex.fetch_web_cookie_usage_snapshot(&cookie).await,
-                keyring_error: false,
-            }
-        }
         CodexUsageSource::Cli => FetchSnapshot {
-            snapshot: try_cli.await,
+            snapshot: state.codex.fetch_cli_usage_snapshot("codex").await,
             keyring_error: false,
         },
-        CodexUsageSource::Auto => {
-            // OAuth → Web cookie → CLI
-            if let Ok(creds) = read_codex_oauth_credentials() {
-                let snap = state
-                    .codex
-                    .fetch_oauth_usage_snapshot(&creds.access_token, creds.account_id.as_deref())
-                    .await;
-                if snap.status() == UsageStatus::Ok {
-                    return FetchSnapshot {
-                        snapshot: snap,
-                        keyring_error: false,
-                    };
-                }
-            }
-
-            match try_web_cookie.await {
-                Ok(Some(cookie)) => {
-                    let snap = state.codex.fetch_web_cookie_usage_snapshot(&cookie).await;
-                    if snap.status() == UsageStatus::Ok {
-                        return FetchSnapshot {
-                            snapshot: snap,
-                            keyring_error: false,
-                        };
-                    }
-                }
-                Ok(None) => {}
-                Err(()) => {
-                    // Keyring unavailable; still allow CLI fallback.
-                    let cli = try_cli.await;
-                    return FetchSnapshot {
-                        snapshot: cli,
-                        keyring_error: true,
-                    };
-                }
-            }
-
-            FetchSnapshot {
-                snapshot: try_cli.await,
-                keyring_error: false,
-            }
-        }
     }
 }
 
@@ -950,12 +865,20 @@ async fn refresh_once<R: Runtime>(app: &AppHandle<R>, state: &AppState<R>) -> Ip
 
     let debug_bundle = {
         let guard = state.debug_override.lock().await;
-        guard.active
+        guard
+            .active
             .then(|| guard.usage_bundle(state.track_claude_enabled(), state.track_codex_enabled()))
     };
     if let Some(snapshot) = debug_bundle {
-        maybe_notify_usage_bundle(app, state, previous.as_ref(), &snapshot, notify_claude, notify_codex)
-            .await;
+        maybe_notify_usage_bundle(
+            app,
+            state,
+            previous.as_ref(),
+            &snapshot,
+            notify_claude,
+            notify_codex,
+        )
+        .await;
         state.update_snapshot(app, Some(snapshot)).await;
         return IpcResult::ok(());
     }
@@ -983,7 +906,15 @@ async fn refresh_once<R: Runtime>(app: &AppHandle<R>, state: &AppState<R>) -> Ip
     };
 
     let snapshot = bundle(claude, codex);
-    maybe_notify_usage_bundle(app, state, previous.as_ref(), &snapshot, notify_claude, notify_codex).await;
+    maybe_notify_usage_bundle(
+        app,
+        state,
+        previous.as_ref(),
+        &snapshot,
+        notify_claude,
+        notify_codex,
+    )
+    .await;
     state.update_snapshot(app, Some(snapshot)).await;
 
     if keyring_errors > 0 {
@@ -1070,12 +1001,11 @@ pub(crate) fn spawn_refresh_loop<R: Runtime>(
                                 UsageStatus::MissingKey | UsageStatus::Unauthorized
                             )
                         });
-                    let paused =
-                        if state.track_claude_enabled() && state.track_codex_enabled() {
-                            claude_paused && codex_paused
-                        } else {
-                            claude_paused || codex_paused
-                        };
+                    let paused = if state.track_claude_enabled() && state.track_codex_enabled() {
+                        claude_paused && codex_paused
+                    } else {
+                        claude_paused || codex_paused
+                    };
                     next_delay_ms = if paused {
                         None
                     } else {
@@ -1118,15 +1048,15 @@ pub async fn settings_get_state<R: Runtime>(
         usage_source,
         remember_session_key: state.settings.get_bool(KEY_REMEMBER_SESSION_KEY, false),
         codex_usage_source: state.codex_usage_source(),
-        remember_codex_cookie: state.settings.get_bool(KEY_REMEMBER_CODEX_COOKIE, false),
         refresh_interval_seconds: state.settings.get_u64(KEY_REFRESH_INTERVAL_SECONDS, 60),
         notify_on_usage_reset: state.settings.get_bool(KEY_NOTIFY_ON_USAGE_RESET, false),
         autostart_enabled,
         check_updates_on_startup: state.settings.get_bool(KEY_CHECK_UPDATES_ON_STARTUP, true),
         organizations,
-        selected_organization_id: (track_claude_enabled && matches!(usage_source, UsageSource::Web))
-            .then(|| state.selected_org_id())
-            .flatten(),
+        selected_organization_id: (track_claude_enabled
+            && matches!(usage_source, UsageSource::Web))
+        .then(|| state.selected_org_id())
+        .flatten(),
         latest_snapshot,
         keyring_available: state.claude_session_key.is_available(),
     })
@@ -1146,9 +1076,7 @@ pub async fn settings_forget_key<R: Runtime>(
     state: State<'_, AppState<R>>,
 ) -> CommandResult<IpcResult<()>> {
     let _ = state.claude_session_key.forget_all().await;
-    let _ = state.codex_cookie.forget_all().await;
     state.settings.set(KEY_REMEMBER_SESSION_KEY, false);
-    state.settings.set(KEY_REMEMBER_CODEX_COOKIE, false);
     state.settings.remove(KEY_SELECTED_ORGANIZATION_ID);
     {
         let mut guard = state.organizations.lock().await;
@@ -1177,31 +1105,9 @@ pub async fn settings_forget_claude_key<R: Runtime>(
         let previous = state.latest_snapshot.lock().await.clone();
         let codex = previous.and_then(|b| b.codex);
         state
-            .update_snapshot(&app, Some(bundle(Some(claude_missing_key_snapshot()), codex)))
-            .await;
-    }
-
-    Ok(IpcResult::ok(()))
-}
-
-#[tauri::command]
-pub async fn settings_forget_codex_cookie<R: Runtime>(
-    app: AppHandle<R>,
-    state: State<'_, AppState<R>>,
-) -> CommandResult<IpcResult<()>> {
-    let _ = state.codex_cookie.forget_all().await;
-    state.settings.set(KEY_REMEMBER_CODEX_COOKIE, false);
-
-    if state.track_codex_enabled() && matches!(state.codex_usage_source(), CodexUsageSource::Web) {
-        let previous = state.latest_snapshot.lock().await.clone();
-        let claude = previous.and_then(|b| b.claude);
-        state
             .update_snapshot(
                 &app,
-                Some(bundle(
-                    claude,
-                    Some(codex_missing_cookie_snapshot("Codex cookie is not configured.")),
-                )),
+                Some(bundle(Some(claude_missing_key_snapshot()), codex)),
             )
             .await;
     }
@@ -1250,9 +1156,7 @@ pub async fn settings_save<R: Runtime>(
     state.settings.set(
         KEY_CODEX_USAGE_SOURCE,
         match payload.codex_usage_source {
-            CodexUsageSource::Auto => "auto",
             CodexUsageSource::Oauth => "oauth",
-            CodexUsageSource::Web => "web",
             CodexUsageSource::Cli => "cli",
         },
     );
@@ -1265,17 +1169,6 @@ pub async fn settings_save<R: Runtime>(
         return Ok(IpcResult::err(
             "KEYRING",
             "OS keychain/secret service is unavailable. Disable “Remember session key” to continue.",
-        ));
-    }
-
-    if uses_codex
-        && matches!(payload.codex_usage_source, CodexUsageSource::Web)
-        && payload.remember_codex_cookie
-        && !state.claude_session_key.is_available()
-    {
-        return Ok(IpcResult::err(
-            "KEYRING",
-            "OS keychain/secret service is unavailable. Disable “Remember” to continue.",
         ));
     }
 
@@ -1304,9 +1197,6 @@ pub async fn settings_save<R: Runtime>(
     state
         .settings
         .set(KEY_REMEMBER_SESSION_KEY, payload.remember_session_key);
-    state
-        .settings
-        .set(KEY_REMEMBER_CODEX_COOKIE, payload.remember_codex_cookie);
 
     // Claude: organization selection is only meaningful for Web mode.
     if matches!(payload.usage_source, UsageSource::Cli) {
@@ -1336,7 +1226,11 @@ pub async fn settings_save<R: Runtime>(
             .filter(|s| !s.is_empty());
 
         if let Some(candidate_key) = candidate_key {
-            match state.claude.fetch_organizations_checked(candidate_key).await {
+            match state
+                .claude
+                .fetch_organizations_checked(candidate_key)
+                .await
+            {
                 Ok(orgs) => {
                     if orgs.is_empty() {
                         return Ok(IpcResult::err(
@@ -1371,7 +1265,12 @@ pub async fn settings_save<R: Runtime>(
                     }
 
                     if payload.remember_session_key {
-                        if state.claude_session_key.remember(candidate_key).await.is_err() {
+                        if state
+                            .claude_session_key
+                            .remember(candidate_key)
+                            .await
+                            .is_err()
+                        {
                             return Ok(IpcResult::err(
                                 "KEYRING",
                                 "Failed to store session key in OS keychain/secret service.",
@@ -1413,37 +1312,6 @@ pub async fn settings_save<R: Runtime>(
             if !payload.remember_session_key {
                 let _ = state.claude_session_key.delete_persisted().await;
             }
-        }
-    }
-
-    if uses_codex {
-        let candidate_cookie = payload
-            .codex_cookie
-            .as_deref()
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty());
-
-        if let Some(candidate_cookie) = candidate_cookie {
-            if payload.remember_codex_cookie {
-                if state.codex_cookie.remember(candidate_cookie).await.is_err() {
-                    return Ok(IpcResult::err(
-                        "KEYRING",
-                        "Failed to store cookie in OS keychain/secret service.",
-                    ));
-                }
-                state
-                    .codex_cookie
-                    .set_in_memory(Some(candidate_cookie.to_string()))
-                    .await;
-            } else {
-                state
-                    .codex_cookie
-                    .set_in_memory(Some(candidate_cookie.to_string()))
-                    .await;
-                let _ = state.codex_cookie.delete_persisted().await;
-            }
-        } else if !payload.remember_codex_cookie {
-            let _ = state.codex_cookie.delete_persisted().await;
         }
     }
 

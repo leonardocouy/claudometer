@@ -1,7 +1,7 @@
 use crate::redact::redact_secrets;
 use crate::types::CodexUsageSnapshot;
 use reqwest::header::{
-    HeaderMap, HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, COOKIE, ORIGIN, REFERER, USER_AGENT,
+    HeaderMap, HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, ORIGIN, REFERER, USER_AGENT,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -11,6 +11,8 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::Mutex;
+use tokio::time::{Duration, Instant};
 
 const USAGE_URL_PRIMARY: &str = "https://chatgpt.com/backend-api/wham/usage";
 const USAGE_URL_FALLBACK: &str = "https://chatgpt.com/api/codex/usage";
@@ -46,7 +48,10 @@ fn build_common_headers() -> HeaderMap {
         ),
     );
     headers.insert(ORIGIN, HeaderValue::from_static("https://chatgpt.com"));
-    headers.insert(REFERER, HeaderValue::from_static("https://chatgpt.com/codex/settings/usage"));
+    headers.insert(
+        REFERER,
+        HeaderValue::from_static("https://chatgpt.com/codex/settings/usage"),
+    );
     headers
 }
 
@@ -59,28 +64,6 @@ fn build_oauth_headers(access_token: &str, account_id: Option<&str>) -> HeaderMa
         if let Ok(value) = HeaderValue::from_str(account_id) {
             headers.insert(HeaderName::from_static("chatgpt-account-id"), value);
         }
-    }
-    headers
-}
-
-fn normalize_cookie_value(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let lower = trimmed.to_ascii_lowercase();
-    if let Some(rest) = lower.strip_prefix("cookie:") {
-        let original_rest = &trimmed[trimmed.len() - rest.len()..];
-        let out = original_rest.trim();
-        return (!out.is_empty()).then(|| out.to_string());
-    }
-    Some(trimmed.to_string())
-}
-
-fn build_cookie_headers(cookie_value: &str) -> HeaderMap {
-    let mut headers = build_common_headers();
-    if let Ok(value) = HeaderValue::from_str(cookie_value) {
-        headers.insert(COOKIE, value);
     }
     headers
 }
@@ -144,7 +127,8 @@ pub fn read_codex_oauth_credentials() -> Result<CodexOAuthCredentials, CodexCred
         return Err(CodexCredentialsError::MissingFile);
     }
     let data = std::fs::read_to_string(&path).map_err(|_| CodexCredentialsError::MissingFile)?;
-    let json: Value = serde_json::from_str(&data).map_err(|_| CodexCredentialsError::InvalidJson)?;
+    let json: Value =
+        serde_json::from_str(&data).map_err(|_| CodexCredentialsError::InvalidJson)?;
 
     let tokens = json.get("tokens").and_then(|v| v.as_object());
     let access_token = tokens
@@ -225,15 +209,9 @@ fn error_snapshot(message: &str) -> CodexUsageSnapshot {
     }
 }
 
-fn missing_key_snapshot(message: &str) -> CodexUsageSnapshot {
-    CodexUsageSnapshot::MissingKey {
-        last_updated_at: now_iso(),
-        error_message: Some(message.to_string()),
-    }
-}
-
 pub struct CodexApiClient {
     http: reqwest::Client,
+    rpc: CodexRpcClient,
 }
 
 impl CodexApiClient {
@@ -243,6 +221,7 @@ impl CodexApiClient {
                 .timeout(std::time::Duration::from_secs(40))
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .build()?,
+            rpc: CodexRpcClient::new(),
         })
     }
 
@@ -271,7 +250,9 @@ impl CodexApiClient {
 
         match attempt(&self.http, USAGE_URL_PRIMARY, &headers).await {
             Ok(v) => Ok(v),
-            Err(CodexHttpErrorStatus::Error) => attempt(&self.http, USAGE_URL_FALLBACK, &headers).await,
+            Err(CodexHttpErrorStatus::Error) => {
+                attempt(&self.http, USAGE_URL_FALLBACK, &headers).await
+            }
             Err(e) => Err(e),
         }
     }
@@ -288,42 +269,27 @@ impl CodexApiClient {
                 Some((primary, secondary)) => ok_snapshot(primary, secondary),
                 None => error_snapshot("Codex usage data missing required fields."),
             },
-            Err(CodexHttpErrorStatus::Unauthorized) => {
-                unauthorized_snapshot("Codex OAuth credentials are invalid. Run `codex` to re-authenticate.")
-            }
-            Err(CodexHttpErrorStatus::RateLimited) => rate_limited_snapshot("Rate limited."),
-            Err(CodexHttpErrorStatus::Error) => error_snapshot("Failed to fetch Codex usage."),
-        }
-    }
-
-    pub async fn fetch_web_cookie_usage_snapshot(&self, cookie_value: &str) -> CodexUsageSnapshot {
-        let Some(cookie_value) = normalize_cookie_value(cookie_value) else {
-            return missing_key_snapshot("Codex cookie is required.");
-        };
-        let headers = build_cookie_headers(&cookie_value);
-        let result = self.fetch_usage_json(headers).await;
-        match result {
-            Ok(json) => match parse_codex_usage_response(json) {
-                Some((primary, secondary)) => ok_snapshot(primary, secondary),
-                None => error_snapshot("Codex usage data missing required fields."),
-            },
-            Err(CodexHttpErrorStatus::Unauthorized) => {
-                unauthorized_snapshot("Codex cookie is invalid or expired.")
-            }
+            Err(CodexHttpErrorStatus::Unauthorized) => unauthorized_snapshot(
+                "Codex OAuth credentials are invalid. Run `codex` to re-authenticate.",
+            ),
             Err(CodexHttpErrorStatus::RateLimited) => rate_limited_snapshot("Rate limited."),
             Err(CodexHttpErrorStatus::Error) => error_snapshot("Failed to fetch Codex usage."),
         }
     }
 
     pub async fn fetch_cli_usage_snapshot(&self, codex_binary: &str) -> CodexUsageSnapshot {
-        match CodexRpcClient::fetch_rate_limits(codex_binary).await {
+        match self.rpc.fetch_rate_limits(codex_binary).await {
             Ok((primary, secondary)) => ok_snapshot(primary, secondary),
-            Err(CodexCliError::BinaryMissing) => {
-                error_snapshot("Codex CLI missing. Install `@openai/codex` (or ensure `codex` is on PATH).")
-            }
+            Err(CodexCliError::BinaryMissing) => error_snapshot(
+                "Codex CLI missing. Install `@openai/codex` (or ensure `codex` is on PATH).",
+            ),
             Err(CodexCliError::TimedOut) => error_snapshot("Codex CLI probe timed out."),
             Err(CodexCliError::Malformed) => error_snapshot("Codex CLI returned invalid data."),
             Err(CodexCliError::Failed(msg)) => error_snapshot(&msg),
+            Err(CodexCliError::Backoff { retry_in }) => error_snapshot(&format!(
+                "Codex CLI temporarily paused after previous failure; retrying in {}s.",
+                retry_in.as_secs()
+            )),
         }
     }
 }
@@ -334,6 +300,7 @@ enum CodexCliError {
     TimedOut,
     Malformed,
     Failed(String),
+    Backoff { retry_in: Duration },
 }
 
 #[derive(Debug, Deserialize)]
@@ -366,10 +333,84 @@ impl RpcRateLimitWindow {
     }
 }
 
-struct CodexRpcClient;
+struct CodexRpcClient {
+    state: Mutex<CodexRpcState>,
+}
 
 impl CodexRpcClient {
-    async fn fetch_rate_limits(binary: &str) -> Result<(CodexWindow, CodexWindow), CodexCliError> {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(CodexRpcState {
+                session: None,
+                backoff_until: None,
+            }),
+        }
+    }
+
+    async fn fetch_rate_limits(
+        &self,
+        binary: &str,
+    ) -> Result<(CodexWindow, CodexWindow), CodexCliError> {
+        let mut state = self.state.lock().await;
+
+        if let Some(until) = state.backoff_until {
+            let now = Instant::now();
+            if now < until {
+                return Err(CodexCliError::Backoff {
+                    retry_in: until - now,
+                });
+            }
+            state.backoff_until = None;
+        }
+
+        // Keep the CLI process around to avoid spawning a new one every refresh, but recycle it if
+        // it sits idle for too long.
+        const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+        if let Some(session) = state.session.as_ref() {
+            if session.last_used.elapsed() > IDLE_TIMEOUT {
+                state.session = None;
+            }
+        }
+
+        if state.session.is_none() {
+            state.session = Some(CodexRpcSession::spawn(binary).await?);
+        }
+
+        let result = match state.session.as_mut() {
+            Some(session) => session.read_rate_limits().await,
+            None => Err(CodexCliError::Malformed),
+        };
+
+        match result {
+            Ok(value) => Ok(value),
+            Err(err) => {
+                // Drop the session and back off to avoid repeated spawns/timeouts.
+                if let Some(mut session) = state.session.take() {
+                    session.start_kill();
+                }
+                state.backoff_until = Some(Instant::now() + backoff_for_error(&err));
+                Err(err)
+            }
+        }
+    }
+}
+
+struct CodexRpcState {
+    session: Option<CodexRpcSession>,
+    backoff_until: Option<Instant>,
+}
+
+struct CodexRpcSession {
+    child: tokio::process::Child,
+    stdin: tokio::process::ChildStdin,
+    stdout_lines: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
+    stderr_lines: tokio::io::Lines<BufReader<tokio::process::ChildStderr>>,
+    next_id: i64,
+    last_used: Instant,
+}
+
+impl CodexRpcSession {
+    async fn spawn(binary: &str) -> Result<Self, CodexCliError> {
         let mut child = Command::new(binary)
             .args(["-s", "read-only", "-a", "untrusted", "app-server"])
             .stdin(Stdio::piped())
@@ -378,31 +419,52 @@ impl CodexRpcClient {
             .spawn()
             .map_err(|_| CodexCliError::BinaryMissing)?;
 
-        let mut stdin = child.stdin.take().ok_or(CodexCliError::Malformed)?;
+        let stdin = child.stdin.take().ok_or(CodexCliError::Malformed)?;
         let stdout = child.stdout.take().ok_or(CodexCliError::Malformed)?;
         let stderr = child.stderr.take().ok_or(CodexCliError::Malformed)?;
 
-        let mut lines = BufReader::new(stdout).lines();
-        let mut stderr_lines = BufReader::new(stderr).lines();
+        let mut session = Self {
+            child,
+            stdin,
+            stdout_lines: BufReader::new(stdout).lines(),
+            stderr_lines: BufReader::new(stderr).lines(),
+            next_id: 1,
+            last_used: Instant::now(),
+        };
 
-        let init_id = 1_i64;
-        Self::send_request(
-            &mut stdin,
-            init_id,
-            "initialize",
-            serde_json::json!({"clientInfo": {"name": "claudometer", "version": env!("CARGO_PKG_VERSION")}}),
-        )
-        .await?;
-        let _ = Self::read_response(&mut lines, &mut stderr_lines, init_id).await?;
-
-        Self::send_notification(&mut stdin, "initialized", serde_json::json!({}))
-            .await
-            .ok();
-
-        let limits_id = 2_i64;
-        Self::send_request(&mut stdin, limits_id, "account/rateLimits/read", serde_json::json!({}))
+        let init_id = session.next_id;
+        session.next_id += 1;
+        session
+            .send_request(
+                init_id,
+                "initialize",
+                serde_json::json!({"clientInfo": {"name": "claudometer", "version": env!("CARGO_PKG_VERSION")}}),
+            )
             .await?;
-        let message = Self::read_response(&mut lines, &mut stderr_lines, limits_id).await?;
+        let _ = session.read_response(init_id).await?;
+        let _ = session
+            .send_notification("initialized", serde_json::json!({}))
+            .await;
+
+        Ok(session)
+    }
+
+    fn start_kill(&mut self) {
+        let _ = self.child.start_kill();
+    }
+
+    async fn read_rate_limits(&mut self) -> Result<(CodexWindow, CodexWindow), CodexCliError> {
+        if let Ok(Some(_)) = self.child.try_wait() {
+            return Err(CodexCliError::Failed(
+                "Codex CLI exited unexpectedly.".to_string(),
+            ));
+        }
+
+        let limits_id = self.next_id;
+        self.next_id += 1;
+        self.send_request(limits_id, "account/rateLimits/read", serde_json::json!({}))
+            .await?;
+        let message = self.read_response(limits_id).await?;
 
         let result = message
             .get("result")
@@ -424,44 +486,46 @@ impl CodexRpcClient {
             .and_then(RpcRateLimitWindow::to_codex_window)
             .ok_or(CodexCliError::Malformed)?;
 
-        let _ = child.kill().await;
         Ok((primary, secondary))
     }
 
     async fn send_request(
-        stdin: &mut tokio::process::ChildStdin,
+        &mut self,
         id: i64,
         method: &str,
         params: Value,
     ) -> Result<(), CodexCliError> {
         let payload = serde_json::json!({"id": id, "method": method, "params": params});
-        Self::write_line(stdin, payload).await
+        self.write_line(payload).await
     }
 
     async fn send_notification(
-        stdin: &mut tokio::process::ChildStdin,
+        &mut self,
         method: &str,
         params: Value,
     ) -> Result<(), CodexCliError> {
         let payload = serde_json::json!({"method": method, "params": params});
-        Self::write_line(stdin, payload).await
+        self.write_line(payload).await
     }
 
-    async fn write_line(stdin: &mut tokio::process::ChildStdin, payload: Value) -> Result<(), CodexCliError> {
+    async fn write_line(&mut self, payload: Value) -> Result<(), CodexCliError> {
         let data = serde_json::to_vec(&payload).map_err(|_| CodexCliError::Malformed)?;
-        stdin.write_all(&data).await.map_err(|_| CodexCliError::Failed("Codex CLI write failed.".to_string()))?;
-        stdin.write_all(b"\n").await.map_err(|_| CodexCliError::Failed("Codex CLI write failed.".to_string()))?;
+        self.stdin
+            .write_all(&data)
+            .await
+            .map_err(|_| CodexCliError::Failed("Codex CLI write failed.".to_string()))?;
+        self.stdin
+            .write_all(b"\n")
+            .await
+            .map_err(|_| CodexCliError::Failed("Codex CLI write failed.".to_string()))?;
+        self.last_used = Instant::now();
         Ok(())
     }
 
-    async fn read_response(
-        lines: &mut tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
-        stderr_lines: &mut tokio::io::Lines<BufReader<tokio::process::ChildStderr>>,
-        id: i64,
-    ) -> Result<Value, CodexCliError> {
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(12);
+    async fn read_response(&mut self, id: i64) -> Result<Value, CodexCliError> {
+        let deadline = Instant::now() + Duration::from_secs(12);
         loop {
-            let now = tokio::time::Instant::now();
+            let now = Instant::now();
             if now >= deadline {
                 return Err(CodexCliError::TimedOut);
             }
@@ -469,7 +533,7 @@ impl CodexRpcClient {
 
             tokio::select! {
                 biased;
-                line = tokio::time::timeout(timeout, lines.next_line()) => {
+                line = tokio::time::timeout(timeout, self.stdout_lines.next_line()) => {
                     let line = line.map_err(|_| CodexCliError::TimedOut)?.map_err(|_| CodexCliError::Malformed)?;
                     let Some(line) = line else {
                         return Err(CodexCliError::Malformed);
@@ -481,9 +545,10 @@ impl CodexRpcClient {
                     if let Some(err) = json.get("error").and_then(|v| v.get("message")).and_then(|v| v.as_str()) {
                         return Err(CodexCliError::Failed(redact_secrets(err).to_string()));
                     }
+                    self.last_used = Instant::now();
                     return Ok(json);
                 }
-                line = tokio::time::timeout(timeout, stderr_lines.next_line()) => {
+                line = tokio::time::timeout(timeout, self.stderr_lines.next_line()) => {
                     let line = line.map_err(|_| CodexCliError::TimedOut)?.map_err(|_| CodexCliError::Malformed)?;
                     if let Some(line) = line {
                         let _ = redact_secrets(&line);
@@ -494,19 +559,19 @@ impl CodexRpcClient {
     }
 }
 
+fn backoff_for_error(error: &CodexCliError) -> Duration {
+    match error {
+        CodexCliError::BinaryMissing => Duration::from_secs(15 * 60),
+        CodexCliError::TimedOut => Duration::from_secs(10 * 60),
+        CodexCliError::Malformed => Duration::from_secs(5 * 60),
+        CodexCliError::Failed(_) => Duration::from_secs(5 * 60),
+        CodexCliError::Backoff { .. } => Duration::from_secs(5 * 60),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn normalize_cookie_value_strips_cookie_prefix() {
-        assert_eq!(
-            normalize_cookie_value("Cookie: a=b; c=d").as_deref(),
-            Some("a=b; c=d")
-        );
-        assert_eq!(normalize_cookie_value("a=b; c=d").as_deref(), Some("a=b; c=d"));
-        assert_eq!(normalize_cookie_value("  ").as_deref(), None);
-    }
 
     #[test]
     fn parse_oauth_fixture_maps_windows() {

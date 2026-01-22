@@ -10,10 +10,7 @@ pub const KEY_SELECTED_ORGANIZATION_ID: &str = "selectedOrganizationId";
 pub const KEY_REMEMBER_SESSION_KEY: &str = "rememberSessionKey";
 pub const KEY_NOTIFY_ON_USAGE_RESET: &str = "notifyOnUsageReset";
 pub const KEY_USAGE_SOURCE: &str = "usageSource";
-pub const KEY_PROVIDER: &str = "provider";
 pub const KEY_CODEX_USAGE_SOURCE: &str = "codexUsageSource";
-pub const KEY_REMEMBER_CODEX_COOKIE: &str = "rememberCodexCookie";
-pub const KEY_DUAL_PROVIDER_MODE_ENABLED: &str = "dualProviderModeEnabled";
 pub const KEY_TRACK_CLAUDE_ENABLED: &str = "trackClaudeEnabled";
 pub const KEY_TRACK_CODEX_ENABLED: &str = "trackCodexEnabled";
 pub const KEY_AUTOSTART_ENABLED: &str = "autostartEnabled";
@@ -25,15 +22,12 @@ pub const KEY_WEEKLY_RESET_NOTIFIED: &str = "weeklyResetNotifiedPeriodIdByOrg";
 
 fn defaults() -> HashMap<String, JsonValue> {
     HashMap::from([
-        (KEY_PROVIDER.to_string(), json!("claude")),
-        (KEY_DUAL_PROVIDER_MODE_ENABLED.to_string(), json!(false)),
         (KEY_TRACK_CLAUDE_ENABLED.to_string(), json!(true)),
         (KEY_TRACK_CODEX_ENABLED.to_string(), json!(true)),
         (KEY_REFRESH_INTERVAL_SECONDS.to_string(), json!(60)),
         (KEY_SELECTED_ORGANIZATION_ID.to_string(), json!("")),
         (KEY_REMEMBER_SESSION_KEY.to_string(), json!(false)),
-        (KEY_CODEX_USAGE_SOURCE.to_string(), json!("auto")),
-        (KEY_REMEMBER_CODEX_COOKIE.to_string(), json!(false)),
+        (KEY_CODEX_USAGE_SOURCE.to_string(), json!("oauth")),
         (KEY_NOTIFY_ON_USAGE_RESET.to_string(), json!(false)),
         (KEY_AUTOSTART_ENABLED.to_string(), json!(false)),
         (KEY_CHECK_UPDATES_ON_STARTUP.to_string(), json!(true)),

@@ -33,7 +33,6 @@ pub fn run() {
             commands::settings_save,
             commands::settings_forget_key,
             commands::settings_forget_claude_key,
-            commands::settings_forget_codex_cookie,
             commands::settings_refresh_now,
             commands::open_settings,
             commands::check_for_updates,
@@ -175,7 +174,6 @@ pub fn run() {
             let state = AppState {
                 settings: settings.clone(),
                 claude_session_key: SecretManager::new(commands::KEYRING_USER_CLAUDE_SESSION_KEY),
-                codex_cookie: SecretManager::new(commands::KEYRING_USER_CODEX_COOKIE),
                 claude: std::sync::Arc::new(claude),
                 codex: std::sync::Arc::new(codex),
                 organizations: std::sync::Arc::new(tokio::sync::Mutex::new(vec![])),

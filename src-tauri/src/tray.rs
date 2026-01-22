@@ -1,6 +1,4 @@
-use crate::types::{
-    ClaudeUsageSnapshot, CodexUsageSnapshot, UsageSnapshotBundle, UsageStatus,
-};
+use crate::types::{ClaudeUsageSnapshot, CodexUsageSnapshot, UsageSnapshotBundle, UsageStatus};
 use chrono::format::Locale;
 use chrono::{DateTime, FixedOffset, Local};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
@@ -53,13 +51,17 @@ fn format_tray_title(
 ) -> String {
     fn session_percent(s: &ClaudeUsageSnapshot) -> Option<f64> {
         match s {
-            ClaudeUsageSnapshot::Ok { session_percent, .. } => Some(*session_percent),
+            ClaudeUsageSnapshot::Ok {
+                session_percent, ..
+            } => Some(*session_percent),
             _ => None,
         }
     }
     fn session_percent_codex(s: &CodexUsageSnapshot) -> Option<f64> {
         match s {
-            CodexUsageSnapshot::Ok { session_percent, .. } => Some(*session_percent),
+            CodexUsageSnapshot::Ok {
+                session_percent, ..
+            } => Some(*session_percent),
             _ => None,
         }
     }
@@ -79,7 +81,9 @@ fn format_tray_title(
     }
 
     if track_claude {
-        let percent = snapshot.and_then(|s| s.claude.as_ref()).and_then(session_percent);
+        let percent = snapshot
+            .and_then(|s| s.claude.as_ref())
+            .and_then(session_percent);
         let value = percent
             .map(|v| format!("{}%", v.round() as i64))
             .unwrap_or_else(|| "--%".to_string());
@@ -107,7 +111,9 @@ fn usage_level(
 ) -> i8 {
     let claude = if track_claude {
         snapshot.and_then(|s| match s.claude.as_ref() {
-            Some(ClaudeUsageSnapshot::Ok { session_percent, .. }) => Some(*session_percent),
+            Some(ClaudeUsageSnapshot::Ok {
+                session_percent, ..
+            }) => Some(*session_percent),
             _ => None,
         })
     } else {
@@ -115,7 +121,9 @@ fn usage_level(
     };
     let codex = if track_codex {
         snapshot.and_then(|s| match s.codex.as_ref() {
-            Some(CodexUsageSnapshot::Ok { session_percent, .. }) => Some(*session_percent),
+            Some(CodexUsageSnapshot::Ok {
+                session_percent, ..
+            }) => Some(*session_percent),
             _ => None,
         })
     } else {
@@ -361,7 +369,7 @@ fn build_menu<R: Runtime>(
             UsageStatus::Unauthorized => "unauthorized",
             UsageStatus::RateLimited => "rate limited",
             UsageStatus::Error => "error",
-            UsageStatus::MissingKey => "needs cookie",
+            UsageStatus::MissingKey => "missing credentials",
         }
     }
 
@@ -419,187 +427,191 @@ fn build_menu<R: Runtime>(
 
     let mut refs: Vec<&dyn tauri::menu::IsMenuItem<R>> = vec![&header, &sep];
 
-    let build_claude_items = |snap: Option<&ClaudeUsageSnapshot>| -> tauri::Result<Vec<MenuItem<R>>> {
-        let status = snap.map(|s| s.status());
-        let label = match status {
-            None => "Claude (no data)".to_string(),
-            Some(UsageStatus::Ok) => "Claude".to_string(),
-            Some(st) => format!("Claude ({})", status_label_claude(st)),
-        };
-        let mut items: Vec<MenuItem<R>> = vec![MenuItem::with_id(
-            app,
-            "claude_section_header",
-            label,
-            false,
-            None::<&str>,
-        )?];
+    let build_claude_items =
+        |snap: Option<&ClaudeUsageSnapshot>| -> tauri::Result<Vec<MenuItem<R>>> {
+            let status = snap.map(|s| s.status());
+            let label = match status {
+                None => "Claude (no data)".to_string(),
+                Some(UsageStatus::Ok) => "Claude".to_string(),
+                Some(st) => format!("Claude ({})", status_label_claude(st)),
+            };
+            let mut items: Vec<MenuItem<R>> = vec![MenuItem::with_id(
+                app,
+                "claude_section_header",
+                label,
+                false,
+                None::<&str>,
+            )?];
 
-        match snap {
-            Some(ClaudeUsageSnapshot::Ok {
-                session_percent,
-                session_resets_at,
-                weekly_percent,
-                weekly_resets_at,
-                models,
-                last_updated_at,
-                ..
-            }) => {
-                let session_time = session_resets_at
-                    .as_deref()
-                    .and_then(format_time_short)
-                    .filter(|t| !t.is_empty())
-                    .map(|t| format!(" (resets {t})"))
-                    .unwrap_or_default();
-                let weekly_time = weekly_resets_at
-                    .as_deref()
-                    .and_then(format_time_short)
-                    .filter(|t| !t.is_empty())
-                    .map(|t| format!(" (resets {t})"))
-                    .unwrap_or_default();
+            match snap {
+                Some(ClaudeUsageSnapshot::Ok {
+                    session_percent,
+                    session_resets_at,
+                    weekly_percent,
+                    weekly_resets_at,
+                    models,
+                    last_updated_at,
+                    ..
+                }) => {
+                    let session_time = session_resets_at
+                        .as_deref()
+                        .and_then(format_time_short)
+                        .filter(|t| !t.is_empty())
+                        .map(|t| format!(" (resets {t})"))
+                        .unwrap_or_default();
+                    let weekly_time = weekly_resets_at
+                        .as_deref()
+                        .and_then(format_time_short)
+                        .filter(|t| !t.is_empty())
+                        .map(|t| format!(" (resets {t})"))
+                        .unwrap_or_default();
 
-                items.push(MenuItem::with_id(
-                    app,
-                    "claude_session",
-                    format!(
-                        "Session: {}{session_time}",
-                        format_percent(Some(*session_percent))
-                    ),
-                    false,
-                    None::<&str>,
-                )?);
-                items.push(MenuItem::with_id(
-                    app,
-                    "claude_weekly",
-                    format!(
-                        "Weekly: {}{weekly_time}",
-                        format_percent(Some(*weekly_percent))
-                    ),
-                    false,
-                    None::<&str>,
-                )?);
-
-                if models.is_empty() {
                     items.push(MenuItem::with_id(
                         app,
-                        "claude_model_none",
-                        "Models (weekly): (none)",
+                        "claude_session",
+                        format!(
+                            "Session: {}{session_time}",
+                            format_percent(Some(*session_percent))
+                        ),
                         false,
                         None::<&str>,
                     )?);
-                } else {
-                    for (idx, m) in models.iter().enumerate() {
-                        let model_time = m
-                            .resets_at
-                            .as_deref()
-                            .and_then(format_time_short)
-                            .filter(|t| !t.is_empty())
-                            .map(|t| format!(" (resets {t})"))
-                            .unwrap_or_default();
+                    items.push(MenuItem::with_id(
+                        app,
+                        "claude_weekly",
+                        format!(
+                            "Weekly: {}{weekly_time}",
+                            format_percent(Some(*weekly_percent))
+                        ),
+                        false,
+                        None::<&str>,
+                    )?);
+
+                    if models.is_empty() {
                         items.push(MenuItem::with_id(
                             app,
-                            format!("claude_model_{idx}"),
-                            format!(
-                                "{} (weekly): {}{model_time}",
-                                m.name,
-                                format_percent(Some(m.percent))
-                            ),
+                            "claude_model_none",
+                            "Models (weekly): (none)",
+                            false,
+                            None::<&str>,
+                        )?);
+                    } else {
+                        for (idx, m) in models.iter().enumerate() {
+                            let model_time = m
+                                .resets_at
+                                .as_deref()
+                                .and_then(format_time_short)
+                                .filter(|t| !t.is_empty())
+                                .map(|t| format!(" (resets {t})"))
+                                .unwrap_or_default();
+                            items.push(MenuItem::with_id(
+                                app,
+                                format!("claude_model_{idx}"),
+                                format!(
+                                    "{} (weekly): {}{model_time}",
+                                    m.name,
+                                    format_percent(Some(m.percent))
+                                ),
+                                false,
+                                None::<&str>,
+                            )?);
+                        }
+                    }
+
+                    items.push(MenuItem::with_id(
+                        app,
+                        "claude_last_updated",
+                        format!("Last updated: {}", format_datetime_full(last_updated_at)),
+                        false,
+                        None::<&str>,
+                    )?);
+                }
+                Some(other) => {
+                    let error_message = match other {
+                        ClaudeUsageSnapshot::Unauthorized { error_message, .. }
+                        | ClaudeUsageSnapshot::RateLimited { error_message, .. }
+                        | ClaudeUsageSnapshot::Error { error_message, .. }
+                        | ClaudeUsageSnapshot::MissingKey { error_message, .. } => {
+                            error_message.clone().unwrap_or_default()
+                        }
+                        _ => String::new(),
+                    };
+
+                    items.push(MenuItem::with_id(
+                        app,
+                        "claude_session",
+                        "Session: --%",
+                        false,
+                        None::<&str>,
+                    )?);
+                    items.push(MenuItem::with_id(
+                        app,
+                        "claude_weekly",
+                        "Weekly: --%",
+                        false,
+                        None::<&str>,
+                    )?);
+                    items.push(MenuItem::with_id(
+                        app,
+                        "claude_model_placeholder",
+                        "Models (weekly): --%",
+                        false,
+                        None::<&str>,
+                    )?);
+                    if !error_message.trim().is_empty() {
+                        items.push(MenuItem::with_id(
+                            app,
+                            "claude_error",
+                            error_message,
                             false,
                             None::<&str>,
                         )?);
                     }
-                }
-
-                items.push(MenuItem::with_id(
-                    app,
-                    "claude_last_updated",
-                    format!("Last updated: {}", format_datetime_full(last_updated_at)),
-                    false,
-                    None::<&str>,
-                )?);
-            }
-            Some(other) => {
-                let error_message = match other {
-                    ClaudeUsageSnapshot::Unauthorized { error_message, .. }
-                    | ClaudeUsageSnapshot::RateLimited { error_message, .. }
-                    | ClaudeUsageSnapshot::Error { error_message, .. }
-                    | ClaudeUsageSnapshot::MissingKey { error_message, .. } => {
-                        error_message.clone().unwrap_or_default()
-                    }
-                    _ => String::new(),
-                };
-
-                items.push(MenuItem::with_id(
-                    app,
-                    "claude_session",
-                    "Session: --%",
-                    false,
-                    None::<&str>,
-                )?);
-                items.push(MenuItem::with_id(
-                    app,
-                    "claude_weekly",
-                    "Weekly: --%",
-                    false,
-                    None::<&str>,
-                )?);
-                items.push(MenuItem::with_id(
-                    app,
-                    "claude_model_placeholder",
-                    "Models (weekly): --%",
-                    false,
-                    None::<&str>,
-                )?);
-                if !error_message.trim().is_empty() {
                     items.push(MenuItem::with_id(
                         app,
-                        "claude_error",
-                        error_message,
+                        "claude_last_updated",
+                        format!(
+                            "Last updated: {}",
+                            format_datetime_full(other.last_updated_at())
+                        ),
                         false,
                         None::<&str>,
                     )?);
                 }
-                items.push(MenuItem::with_id(
-                    app,
-                    "claude_last_updated",
-                    format!("Last updated: {}", format_datetime_full(other.last_updated_at())),
-                    false,
-                    None::<&str>,
-                )?);
+                None => {
+                    items.push(MenuItem::with_id(
+                        app,
+                        "claude_session",
+                        "Session: --%",
+                        false,
+                        None::<&str>,
+                    )?);
+                    items.push(MenuItem::with_id(
+                        app,
+                        "claude_weekly",
+                        "Weekly: --%",
+                        false,
+                        None::<&str>,
+                    )?);
+                    items.push(MenuItem::with_id(
+                        app,
+                        "claude_model_placeholder",
+                        "Models (weekly): --%",
+                        false,
+                        None::<&str>,
+                    )?);
+                    items.push(MenuItem::with_id(
+                        app,
+                        "claude_last_updated",
+                        "Last updated: --",
+                        false,
+                        None::<&str>,
+                    )?);
+                }
             }
-            None => {
-                items.push(MenuItem::with_id(
-                    app,
-                    "claude_session",
-                    "Session: --%",
-                    false,
-                    None::<&str>,
-                )?);
-                items.push(MenuItem::with_id(
-                    app,
-                    "claude_weekly",
-                    "Weekly: --%",
-                    false,
-                    None::<&str>,
-                )?);
-                items.push(MenuItem::with_id(
-                    app,
-                    "claude_model_placeholder",
-                    "Models (weekly): --%",
-                    false,
-                    None::<&str>,
-                )?);
-                items.push(MenuItem::with_id(
-                    app,
-                    "claude_last_updated",
-                    "Last updated: --",
-                    false,
-                    None::<&str>,
-                )?);
-            }
-        }
 
-        Ok(items)
-    };
+            Ok(items)
+        };
 
     let build_codex_items = |snap: Option<&CodexUsageSnapshot>| -> tauri::Result<Vec<MenuItem<R>>> {
         let status = snap.map(|s| s.status());
@@ -715,7 +727,10 @@ fn build_menu<R: Runtime>(
                 items.push(MenuItem::with_id(
                     app,
                     "codex_last_updated",
-                    format!("Last updated: {}", format_datetime_full(other.last_updated_at())),
+                    format!(
+                        "Last updated: {}",
+                        format_datetime_full(other.last_updated_at())
+                    ),
                     false,
                     None::<&str>,
                 )?);

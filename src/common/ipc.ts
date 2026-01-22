@@ -11,7 +11,6 @@ export const ipcChannels = {
     save: 'settings:save',
     forgetKey: 'settings:forgetKey',
     forgetClaudeKey: 'settings:forgetClaudeKey',
-    forgetCodexCookie: 'settings:forgetCodexCookie',
     refreshNow: 'settings:refreshNow',
   },
   events: {
@@ -25,7 +24,6 @@ export type SettingsState = {
   usageSource: UsageSource;
   rememberSessionKey: boolean;
   codexUsageSource: CodexUsageSource;
-  rememberCodexCookie: boolean;
   refreshIntervalSeconds: number;
   notifyOnUsageReset: boolean;
   autostartEnabled: boolean;
@@ -42,8 +40,6 @@ export type SaveSettingsPayload = {
   sessionKey?: string;
   rememberSessionKey: boolean;
   codexUsageSource: CodexUsageSource;
-  codexCookie?: string;
-  rememberCodexCookie: boolean;
   refreshIntervalSeconds: number;
   notifyOnUsageReset: boolean;
   autostartEnabled: boolean;
@@ -74,7 +70,6 @@ export type RendererApi = {
     save: (payload: SaveSettingsPayload) => Promise<IpcResult<null>>;
     forgetKey: () => Promise<IpcResult<null>>;
     forgetClaudeKey: () => Promise<IpcResult<null>>;
-    forgetCodexCookie: () => Promise<IpcResult<null>>;
     refreshNow: () => Promise<IpcResult<null>>;
     onSnapshotUpdated: (handler: SnapshotUpdatedHandler) => Unsubscribe;
   };
