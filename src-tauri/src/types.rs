@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageStatus {
     Ok,
@@ -10,28 +11,28 @@ pub enum UsageStatus {
     MissingKey,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageSource {
     Web,
     Cli,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum CodexUsageSource {
     Oauth,
     Cli,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageSnapshotBundle {
     pub claude: Option<ClaudeUsageSnapshot>,
     pub codex: Option<CodexUsageSnapshot>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeModelUsage {
     pub name: String,
@@ -39,7 +40,7 @@ pub struct ClaudeModelUsage {
     pub resets_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ClaudeUsageSnapshot {
     Ok {
@@ -124,7 +125,7 @@ impl ClaudeUsageSnapshot {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum CodexUsageSnapshot {
     Ok {
@@ -197,19 +198,31 @@ impl CodexUsageSnapshot {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ClaudeOrganization {
     pub id: String,
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum IpcErrorCode {
+    Validation,
+    Network,
+    Unauthorized,
+    RateLimited,
+    Keyring,
+    Updater,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct IpcError {
-    pub code: String,
+    pub code: IpcErrorCode,
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(untagged)]
 pub enum IpcResult<T> {
     Ok { ok: bool, value: T },
@@ -221,18 +234,18 @@ impl<T> IpcResult<T> {
         Self::Ok { ok: true, value }
     }
 
-    pub fn err(code: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn err(code: IpcErrorCode, message: impl Into<String>) -> Self {
         Self::Err {
             ok: false,
             error: IpcError {
-                code: code.into(),
+                code,
                 message: message.into(),
             },
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsState {
     pub track_claude_enabled: bool,
@@ -240,7 +253,7 @@ pub struct SettingsState {
     pub usage_source: UsageSource,
     pub remember_session_key: bool,
     pub codex_usage_source: CodexUsageSource,
-    pub refresh_interval_seconds: u64,
+    pub refresh_interval_seconds: u32,
     pub notify_on_usage_reset: bool,
     pub autostart_enabled: bool,
     pub check_updates_on_startup: bool,
@@ -250,7 +263,7 @@ pub struct SettingsState {
     pub keyring_available: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveSettingsPayload {
     pub track_claude_enabled: bool,
@@ -259,7 +272,7 @@ pub struct SaveSettingsPayload {
     pub session_key: Option<String>,
     pub remember_session_key: bool,
     pub codex_usage_source: CodexUsageSource,
-    pub refresh_interval_seconds: u64,
+    pub refresh_interval_seconds: u32,
     pub notify_on_usage_reset: bool,
     pub autostart_enabled: bool,
     pub check_updates_on_startup: bool,

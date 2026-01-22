@@ -1,9 +1,9 @@
 import type {
-  ClaudeOrganization,
-  CodexUsageSource,
+  IpcResult,
+  SaveSettingsPayload,
+  SettingsState,
   UsageSnapshotBundle,
-  UsageSource,
-} from './types.ts';
+} from './generated/ipc-types.ts';
 
 export const ipcChannels = {
   settings: {
@@ -17,49 +17,6 @@ export const ipcChannels = {
     snapshotUpdated: 'snapshot:updated',
   },
 } as const;
-
-export type SettingsState = {
-  trackClaudeEnabled: boolean;
-  trackCodexEnabled: boolean;
-  usageSource: UsageSource;
-  rememberSessionKey: boolean;
-  codexUsageSource: CodexUsageSource;
-  refreshIntervalSeconds: number;
-  notifyOnUsageReset: boolean;
-  autostartEnabled: boolean;
-  checkUpdatesOnStartup: boolean;
-  organizations: ClaudeOrganization[];
-  selectedOrganizationId?: string;
-  latestSnapshot: UsageSnapshotBundle | null;
-  keyringAvailable: boolean;
-};
-
-export type SaveSettingsPayload = {
-  trackClaudeEnabled: boolean;
-  trackCodexEnabled: boolean;
-  sessionKey?: string;
-  rememberSessionKey: boolean;
-  codexUsageSource: CodexUsageSource;
-  refreshIntervalSeconds: number;
-  notifyOnUsageReset: boolean;
-  autostartEnabled: boolean;
-  checkUpdatesOnStartup: boolean;
-  selectedOrganizationId?: string;
-  usageSource: UsageSource;
-};
-
-export type IpcErrorCode =
-  | 'VALIDATION'
-  | 'NETWORK'
-  | 'UNAUTHORIZED'
-  | 'RATE_LIMITED'
-  | 'KEYRING'
-  | 'UPDATER'
-  | 'UNKNOWN';
-
-export type IpcError = { code: IpcErrorCode; message: string };
-
-export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: IpcError };
 
 export type SnapshotUpdatedHandler = (snapshot: UsageSnapshotBundle | null) => void;
 export type Unsubscribe = () => void;

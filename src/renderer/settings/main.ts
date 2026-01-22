@@ -3,13 +3,15 @@ import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import type { IpcResult, SaveSettingsPayload, SettingsState } from '../../common/ipc.ts';
 import type {
   ClaudeOrganization,
   CodexUsageSource,
+  IpcResult,
+  SaveSettingsPayload,
+  SettingsState,
   UsageSnapshotBundle,
   UsageSource,
-} from '../../common/types.ts';
+} from '../../common/generated/ipc-types.ts';
 
 const el = <T extends HTMLElement>(root: ParentNode, selector: string): T => {
   const node = root.querySelector(selector);
@@ -40,7 +42,7 @@ async function settingsRefreshNow(): Promise<IpcResult<null>> {
 function renderOrgs(
   orgSelectEl: HTMLSelectElement,
   orgs: ClaudeOrganization[],
-  selectedId?: string,
+  selectedId: string | null,
 ) {
   orgSelectEl.innerHTML = '';
   const emptyOpt = document.createElement('option');
@@ -128,6 +130,7 @@ function setStatus(statusBoxEl: HTMLElement, html: string): void {
 
 function setResultError(statusBoxEl: HTMLElement, result: IpcResult<unknown>): void {
   if (result.ok) return;
+  if (!('error' in result)) return;
 
   // Clear previous content
   statusBoxEl.textContent = '';
@@ -459,22 +462,23 @@ function renderApp(root: HTMLElement): void {
     const trackClaudeEnabled = ui.trackClaudeEl.checked;
     const trackCodexEnabled = ui.trackCodexEl.checked;
 
+    const sessionKey =
+      trackClaudeEnabled && usageSource === 'web' ? ui.sessionKeyEl.value.trim() : '';
+    const selectedOrganizationId =
+      trackClaudeEnabled && usageSource === 'web' ? ui.orgSelectEl.value.trim() : '';
+
     const payload: SaveSettingsPayload = {
       trackClaudeEnabled,
       trackCodexEnabled,
       usageSource,
-      sessionKey:
-        trackClaudeEnabled && usageSource === 'web'
-          ? ui.sessionKeyEl.value || undefined
-          : undefined,
+      sessionKey: sessionKey ? sessionKey : null,
       rememberSessionKey: ui.rememberKeyEl.checked,
       codexUsageSource,
       refreshIntervalSeconds: Number(ui.refreshIntervalEl.value || 60),
       notifyOnUsageReset: ui.notifyResetEl.checked,
       autostartEnabled: ui.autostartEl.checked,
       checkUpdatesOnStartup: ui.updatesStartupEl.checked,
-      selectedOrganizationId:
-        trackClaudeEnabled && usageSource === 'web' ? ui.orgSelectEl.value || undefined : undefined,
+      selectedOrganizationId: selectedOrganizationId ? selectedOrganizationId : null,
     };
 
     const result = await settingsSave(payload);

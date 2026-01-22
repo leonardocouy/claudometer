@@ -29,6 +29,7 @@ thiserror = "2"
 time = { version = "0.3", features = ["formatting", "macros"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "process", "io-util"] }
 urlencoding = "2"
+ts-rs = "11.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

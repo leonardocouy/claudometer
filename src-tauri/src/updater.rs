@@ -1,5 +1,5 @@
 use crate::redact::redact_secrets;
-use crate::types::IpcResult;
+use crate::types::{IpcErrorCode, IpcResult};
 use tauri::Runtime;
 use tauri_plugin_notification::NotificationExt as _;
 use tauri_plugin_updater::UpdaterExt as _;
@@ -25,7 +25,12 @@ async fn notify<R: Runtime>(app: &tauri::AppHandle<R>, body: &str) {
 pub async fn check_for_updates_startup<R: Runtime>(app: tauri::AppHandle<R>) -> IpcResult<()> {
     let updater = match app.updater() {
         Ok(u) => u,
-        Err(e) => return IpcResult::err("UPDATER", redact_secrets(&e.to_string()).to_string()),
+        Err(e) => {
+            return IpcResult::err(
+                IpcErrorCode::Updater,
+                redact_secrets(&e.to_string()).to_string(),
+            );
+        }
     };
 
     match updater.check().await {
@@ -41,14 +46,22 @@ pub async fn check_for_updates_startup<R: Runtime>(app: tauri::AppHandle<R>) -> 
             IpcResult::ok(())
         }
         Ok(None) => IpcResult::ok(()),
-        Err(e) => IpcResult::err("UPDATER", redact_secrets(&e.to_string()).to_string()),
+        Err(e) => IpcResult::err(
+            IpcErrorCode::Updater,
+            redact_secrets(&e.to_string()).to_string(),
+        ),
     }
 }
 
 pub async fn check_for_updates_now<R: Runtime>(app: tauri::AppHandle<R>) -> IpcResult<()> {
     let updater = match app.updater() {
         Ok(u) => u,
-        Err(e) => return IpcResult::err("UPDATER", redact_secrets(&e.to_string()).to_string()),
+        Err(e) => {
+            return IpcResult::err(
+                IpcErrorCode::Updater,
+                redact_secrets(&e.to_string()).to_string(),
+            );
+        }
     };
 
     match updater.check().await {
@@ -66,9 +79,15 @@ pub async fn check_for_updates_now<R: Runtime>(app: tauri::AppHandle<R>) -> IpcR
                     notify(&app, "Update installed. Restarting…").await;
                     IpcResult::ok(())
                 }
-                Err(e) => IpcResult::err("UPDATER", redact_secrets(&e.to_string()).to_string()),
+                Err(e) => IpcResult::err(
+                    IpcErrorCode::Updater,
+                    redact_secrets(&e.to_string()).to_string(),
+                ),
             }
         }
-        Err(e) => IpcResult::err("UPDATER", redact_secrets(&e.to_string()).to_string()),
+        Err(e) => IpcResult::err(
+            IpcErrorCode::Updater,
+            redact_secrets(&e.to_string()).to_string(),
+        ),
     }
 }
