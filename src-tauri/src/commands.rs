@@ -928,6 +928,42 @@ async fn refresh_once<R: Runtime>(app: &AppHandle<R>, state: &AppState<R>) -> Ip
     IpcResult::ok(())
 }
 
+fn compute_next_delay_for_latest<R: Runtime>(
+    state: &AppState<R>,
+    snapshot: Option<&UsageSnapshotBundle>,
+) -> Option<u64> {
+    let Some(snapshot) = snapshot else {
+        return Some(60_000);
+    };
+
+    let claude_paused = state.track_claude_enabled()
+        && snapshot.claude.as_ref().is_some_and(|s| {
+            matches!(
+                s.status(),
+                UsageStatus::MissingKey | UsageStatus::Unauthorized
+            )
+        });
+    let codex_paused = state.track_codex_enabled()
+        && snapshot.codex.as_ref().is_some_and(|s| {
+            matches!(
+                s.status(),
+                UsageStatus::MissingKey | UsageStatus::Unauthorized
+            )
+        });
+
+    let paused = if state.track_claude_enabled() && state.track_codex_enabled() {
+        claude_paused && codex_paused
+    } else {
+        claude_paused || codex_paused
+    };
+
+    if paused {
+        None
+    } else {
+        Some(compute_next_delay_ms(state, snapshot))
+    }
+}
+
 pub(crate) fn spawn_refresh_loop<R: Runtime>(
     app: AppHandle<R>,
     state: AppState<R>,
@@ -945,18 +981,7 @@ pub(crate) fn spawn_refresh_loop<R: Runtime>(
                     let req = req.unwrap();
                     let result = refresh_once(&app, &state).await;
                     let latest = state.latest_snapshot.lock().await.clone();
-                    if let Some(snapshot) = latest {
-                      let claude_paused = state.track_claude_enabled() && snapshot.claude.as_ref().is_some_and(|s| matches!(s.status(), UsageStatus::MissingKey | UsageStatus::Unauthorized));
-                      let codex_paused = state.track_codex_enabled() && snapshot.codex.as_ref().is_some_and(|s| matches!(s.status(), UsageStatus::MissingKey | UsageStatus::Unauthorized));
-                      let paused = if state.track_claude_enabled() && state.track_codex_enabled() {
-                        claude_paused && codex_paused
-                      } else {
-                        claude_paused || codex_paused
-                      };
-                      next_delay_ms = if paused { None } else { Some(compute_next_delay_ms(&state, &snapshot)) };
-                    } else {
-                      next_delay_ms = Some(60_000);
-                    }
+                    next_delay_ms = compute_next_delay_for_latest(&state, latest.as_ref());
                     if let Some(tx) = req.respond_to {
                       let _ = tx.send(result);
                     }
@@ -964,18 +989,7 @@ pub(crate) fn spawn_refresh_loop<R: Runtime>(
                   _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => {
                     let _ = refresh_once(&app, &state).await;
                     let latest = state.latest_snapshot.lock().await.clone();
-                    if let Some(snapshot) = latest {
-                      let claude_paused = state.track_claude_enabled() && snapshot.claude.as_ref().is_some_and(|s| matches!(s.status(), UsageStatus::MissingKey | UsageStatus::Unauthorized));
-                      let codex_paused = state.track_codex_enabled() && snapshot.codex.as_ref().is_some_and(|s| matches!(s.status(), UsageStatus::MissingKey | UsageStatus::Unauthorized));
-                      let paused = if state.track_claude_enabled() && state.track_codex_enabled() {
-                        claude_paused && codex_paused
-                      } else {
-                        claude_paused || codex_paused
-                      };
-                      next_delay_ms = if paused { None } else { Some(compute_next_delay_ms(&state, &snapshot)) };
-                    } else {
-                      next_delay_ms = Some(60_000);
-                    }
+                    next_delay_ms = compute_next_delay_for_latest(&state, latest.as_ref());
                   }
                 }
             } else {
@@ -986,34 +1000,7 @@ pub(crate) fn spawn_refresh_loop<R: Runtime>(
                 let req = req.unwrap();
                 let result = refresh_once(&app, &state).await;
                 let latest = state.latest_snapshot.lock().await.clone();
-                if let Some(snapshot) = latest {
-                    let claude_paused = state.track_claude_enabled()
-                        && snapshot.claude.as_ref().is_some_and(|s| {
-                            matches!(
-                                s.status(),
-                                UsageStatus::MissingKey | UsageStatus::Unauthorized
-                            )
-                        });
-                    let codex_paused = state.track_codex_enabled()
-                        && snapshot.codex.as_ref().is_some_and(|s| {
-                            matches!(
-                                s.status(),
-                                UsageStatus::MissingKey | UsageStatus::Unauthorized
-                            )
-                        });
-                    let paused = if state.track_claude_enabled() && state.track_codex_enabled() {
-                        claude_paused && codex_paused
-                    } else {
-                        claude_paused || codex_paused
-                    };
-                    next_delay_ms = if paused {
-                        None
-                    } else {
-                        Some(compute_next_delay_ms(&state, &snapshot))
-                    };
-                } else {
-                    next_delay_ms = Some(60_000);
-                }
+                next_delay_ms = compute_next_delay_for_latest(&state, latest.as_ref());
                 if let Some(tx) = req.respond_to {
                     let _ = tx.send(result);
                 }

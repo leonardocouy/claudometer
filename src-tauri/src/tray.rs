@@ -186,11 +186,18 @@ fn set_colored_tray_title<R: Runtime>(tray: &TrayIcon<R>, title: &str, level: i8
         // Create dictionary - cast types for compatibility
         let color_ref: &NSColor = &color;
         let key_ref: &NSString = &key;
+        // Safety: NSColor is an Objective-C object, so it can be treated as AnyObject for
+        // NSDictionary storage. The resulting reference is only used within this closure.
         let color_obj: &AnyObject =
             unsafe { std::mem::transmute::<&NSColor, &AnyObject>(color_ref) };
+        // Safety: NSDictionary keys must conform to NSCopying. NSString does, and Tauri/objc2
+        // expects keys as `ProtocolObject<dyn NSCopying>`.
         let key_copy: &ProtocolObject<dyn NSCopying> =
             unsafe { std::mem::transmute::<&NSString, &ProtocolObject<dyn NSCopying>>(key_ref) };
         let attrs: Retained<NSDictionary<NSString, AnyObject>> = unsafe {
+            // Safety: objc2 returns a dictionary typed as `NSDictionary<AnyObject, AnyObject>`.
+            // We control both key/value types (NSString/AnyObject) and immediately pass it to
+            // NSAttributedString creation.
             std::mem::transmute(
                 NSDictionary::<AnyObject, AnyObject>::dictionaryWithObject_forKey(
                     color_obj, key_copy,

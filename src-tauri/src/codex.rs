@@ -540,7 +540,10 @@ impl CodexRpcSession {
             tokio::select! {
                 biased;
                 line = tokio::time::timeout(timeout, self.stdout_lines.next_line()) => {
-                    let line = line.map_err(|_| CodexCliError::TimedOut)?.map_err(|_| CodexCliError::Malformed)?;
+                    let line = match line {
+                        Ok(v) => v.map_err(|_| CodexCliError::Malformed)?,
+                        Err(_) => return Err(CodexCliError::TimedOut),
+                    };
                     let Some(line) = line else {
                         return Err(CodexCliError::Malformed);
                     };
@@ -555,7 +558,10 @@ impl CodexRpcSession {
                     return Ok(json);
                 }
                 line = tokio::time::timeout(timeout, self.stderr_lines.next_line()) => {
-                    let line = line.map_err(|_| CodexCliError::TimedOut)?.map_err(|_| CodexCliError::Malformed)?;
+                    let line = match line {
+                        Ok(v) => v.map_err(|_| CodexCliError::Malformed)?,
+                        Err(_) => return Err(CodexCliError::TimedOut),
+                    };
                     if let Some(line) = line {
                         let _ = redact_secrets(&line);
                     }
