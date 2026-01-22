@@ -678,13 +678,6 @@ fn build_menu<R: Runtime>(
                 )?);
                 items.push(MenuItem::with_id(
                     app,
-                    "codex_model_na",
-                    "Models (weekly): (n/a)",
-                    false,
-                    None::<&str>,
-                )?);
-                items.push(MenuItem::with_id(
-                    app,
                     "codex_last_updated",
                     format!("Last updated: {}", format_datetime_full(last_updated_at)),
                     false,
@@ -717,19 +710,13 @@ fn build_menu<R: Runtime>(
                 )?);
                 items.push(MenuItem::with_id(
                     app,
-                    "codex_model_placeholder",
-                    "Models (weekly): --%",
+                    "codex_error",
+                    error_message.clone(),
                     false,
                     None::<&str>,
                 )?);
-                if !error_message.trim().is_empty() {
-                    items.push(MenuItem::with_id(
-                        app,
-                        "codex_error",
-                        error_message,
-                        false,
-                        None::<&str>,
-                    )?);
+                if error_message.trim().is_empty() {
+                    items.pop();
                 }
                 items.push(MenuItem::with_id(
                     app,
@@ -754,13 +741,6 @@ fn build_menu<R: Runtime>(
                     app,
                     "codex_weekly",
                     "Weekly: --%",
-                    false,
-                    None::<&str>,
-                )?);
-                items.push(MenuItem::with_id(
-                    app,
-                    "codex_model_placeholder",
-                    "Models (weekly): --%",
                     false,
                     None::<&str>,
                 )?);
