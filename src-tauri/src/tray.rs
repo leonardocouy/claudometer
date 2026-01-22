@@ -1,5 +1,5 @@
 use crate::types::{
-    ClaudeUsageSnapshot, CodexUsageSnapshot, UsageProvider, UsageSnapshot, UsageStatus,
+    ClaudeUsageSnapshot, CodexUsageSnapshot, UsageSnapshotBundle, UsageStatus,
 };
 use chrono::format::Locale;
 use chrono::{DateTime, FixedOffset, Local};
@@ -46,42 +46,87 @@ fn format_percent(value: Option<f64>) -> String {
 
 /// Generate the tray title text based on usage snapshot.
 /// Returns percentage for Ok state, "--%" for error states.
-fn provider_prefix(provider: UsageProvider) -> &'static str {
-    match provider {
-        UsageProvider::Claude => "CL",
-        UsageProvider::Codex => "CX",
+fn format_tray_title(
+    track_claude: bool,
+    track_codex: bool,
+    snapshot: Option<&UsageSnapshotBundle>,
+) -> String {
+    fn session_percent(s: &ClaudeUsageSnapshot) -> Option<f64> {
+        match s {
+            ClaudeUsageSnapshot::Ok { session_percent, .. } => Some(*session_percent),
+            _ => None,
+        }
     }
-}
+    fn session_percent_codex(s: &CodexUsageSnapshot) -> Option<f64> {
+        match s {
+            CodexUsageSnapshot::Ok { session_percent, .. } => Some(*session_percent),
+            _ => None,
+        }
+    }
 
-fn format_tray_title(provider: UsageProvider, snapshot: Option<&UsageSnapshot>) -> String {
-    let prefix = provider_prefix(provider);
-    let percent = match snapshot {
-        Some(UsageSnapshot::Claude {
-            snapshot: ClaudeUsageSnapshot::Ok { session_percent, .. },
-        }) => Some(*session_percent),
-        Some(UsageSnapshot::Codex {
-            snapshot: CodexUsageSnapshot::Ok { session_percent, .. },
-        }) => Some(*session_percent),
-        _ => None,
-    };
+    if track_claude && track_codex {
+        let claude = snapshot
+            .and_then(|s| s.claude.as_ref())
+            .and_then(session_percent)
+            .map(|v| format!("{}%", v.round() as i64))
+            .unwrap_or_else(|| "--%".to_string());
+        let codex = snapshot
+            .and_then(|s| s.codex.as_ref())
+            .and_then(session_percent_codex)
+            .map(|v| format!("{}%", v.round() as i64))
+            .unwrap_or_else(|| "--%".to_string());
+        return format!("CL {claude} · CX {codex}");
+    }
 
-    let value = percent
-        .map(|v| format!("{}%", v.round() as i64))
-        .unwrap_or_else(|| "--%".to_string());
-    format!("{prefix} {value}")
+    if track_claude {
+        let percent = snapshot.and_then(|s| s.claude.as_ref()).and_then(session_percent);
+        let value = percent
+            .map(|v| format!("{}%", v.round() as i64))
+            .unwrap_or_else(|| "--%".to_string());
+        return format!("CL {value}");
+    }
+    if track_codex {
+        let percent = snapshot
+            .and_then(|s| s.codex.as_ref())
+            .and_then(session_percent_codex);
+        let value = percent
+            .map(|v| format!("{}%", v.round() as i64))
+            .unwrap_or_else(|| "--%".to_string());
+        return format!("CX {value}");
+    }
+
+    "--%".to_string()
 }
 
 /// Determine usage level from session percentage.
 /// Returns: 0 = low (green), 1 = medium (orange), 2 = high (red), -1 = unknown (gray)
-fn usage_level(snapshot: Option<&UsageSnapshot>) -> i8 {
-    let session_percent = match snapshot {
-        Some(UsageSnapshot::Claude {
-            snapshot: ClaudeUsageSnapshot::Ok { session_percent, .. },
-        }) => Some(*session_percent),
-        Some(UsageSnapshot::Codex {
-            snapshot: CodexUsageSnapshot::Ok { session_percent, .. },
-        }) => Some(*session_percent),
-        _ => None,
+fn usage_level(
+    track_claude: bool,
+    track_codex: bool,
+    snapshot: Option<&UsageSnapshotBundle>,
+) -> i8 {
+    let claude = if track_claude {
+        snapshot.and_then(|s| match s.claude.as_ref() {
+            Some(ClaudeUsageSnapshot::Ok { session_percent, .. }) => Some(*session_percent),
+            _ => None,
+        })
+    } else {
+        None
+    };
+    let codex = if track_codex {
+        snapshot.and_then(|s| match s.codex.as_ref() {
+            Some(CodexUsageSnapshot::Ok { session_percent, .. }) => Some(*session_percent),
+            _ => None,
+        })
+    } else {
+        None
+    };
+
+    let session_percent = match (claude, codex) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
     };
 
     let Some(session_percent) = session_percent else {
@@ -90,7 +135,7 @@ fn usage_level(snapshot: Option<&UsageSnapshot>) -> i8 {
 
     if session_percent < 50.0 {
         0 // green
-    } else if session_percent <= 80.0 {
+    } else if session_percent <= 70.0 {
         1 // orange
     } else {
         2 // red
@@ -251,7 +296,7 @@ fn debug_menu_enabled() -> bool {
 
 impl<R: Runtime> TrayUi<R> {
     pub fn new(app: &AppHandle<R>) -> tauri::Result<Self> {
-        let menu = build_menu(app, UsageProvider::Claude, None)?;
+        let menu = build_menu(app, true, true, None)?;
 
         let icon = Image::from_bytes(include_bytes!("../icons/icon.png"))?;
 
@@ -259,22 +304,27 @@ impl<R: Runtime> TrayUi<R> {
             .icon(icon)
             .menu(&menu)
             .tooltip("Claudometer")
-            .title("CL --%") // Initial placeholder until first data fetch
+            .title("CL --% · CX --%") // Initial placeholder until first data fetch
             .build(app)?;
 
         Ok(Self { tray })
     }
 
-    pub fn update_snapshot(&self, provider: UsageProvider, snapshot: Option<&UsageSnapshot>) {
+    pub fn update_snapshot(
+        &self,
+        track_claude: bool,
+        track_codex: bool,
+        snapshot: Option<&UsageSnapshotBundle>,
+    ) {
         let app = self.tray.app_handle();
-        let menu = build_menu(app, provider, snapshot);
+        let menu = build_menu(app, track_claude, track_codex, snapshot);
         if let Ok(menu) = menu {
             let _ = self.tray.set_menu(Some(menu));
         }
 
         // Update tray title with usage percentage
-        let title = format_tray_title(provider, snapshot);
-        let level = usage_level(snapshot);
+        let title = format_tray_title(track_claude, track_codex, snapshot);
+        let level = usage_level(track_claude, track_codex, snapshot);
 
         #[cfg(target_os = "macos")]
         {
@@ -291,208 +341,55 @@ impl<R: Runtime> TrayUi<R> {
 
 fn build_menu<R: Runtime>(
     app: &AppHandle<R>,
-    provider: UsageProvider,
-    snapshot: Option<&UsageSnapshot>,
+    track_claude: bool,
+    track_codex: bool,
+    snapshot: Option<&UsageSnapshotBundle>,
 ) -> tauri::Result<Menu<R>> {
-    let provider_label = match provider {
-        UsageProvider::Claude => "Claude",
-        UsageProvider::Codex => "Codex",
-    };
-    let header_text = match snapshot {
-        None => format!("Claudometer - {provider_label} Usage (no data)"),
-        Some(s) => match s.status() {
-            UsageStatus::MissingKey => match provider {
-                UsageProvider::Claude => format!("Claudometer - {provider_label} Usage (needs session key)"),
-                UsageProvider::Codex => format!("Claudometer - {provider_label} Usage (needs cookie)"),
-            },
-            UsageStatus::Unauthorized => format!("Claudometer - {provider_label} Usage (unauthorized)"),
-            UsageStatus::RateLimited => format!("Claudometer - {provider_label} Usage (rate limited)"),
-            UsageStatus::Error => format!("Claudometer - {provider_label} Usage (error)"),
-            UsageStatus::Ok => format!("Claudometer - {provider_label} Usage"),
-        },
+    fn status_label_claude(status: UsageStatus) -> &'static str {
+        match status {
+            UsageStatus::Ok => "ok",
+            UsageStatus::Unauthorized => "unauthorized",
+            UsageStatus::RateLimited => "rate limited",
+            UsageStatus::Error => "error",
+            UsageStatus::MissingKey => "needs session key",
+        }
+    }
+
+    fn status_label_codex(status: UsageStatus) -> &'static str {
+        match status {
+            UsageStatus::Ok => "ok",
+            UsageStatus::Unauthorized => "unauthorized",
+            UsageStatus::RateLimited => "rate limited",
+            UsageStatus::Error => "error",
+            UsageStatus::MissingKey => "needs cookie",
+        }
+    }
+
+    let header_text = if track_claude && track_codex {
+        "Claudometer - Usage".to_string()
+    } else if track_claude {
+        let status = snapshot
+            .and_then(|s| s.claude.as_ref())
+            .map(|c| status_label_claude(c.status()));
+        match status {
+            None => "Claudometer - Claude Usage (no data)".to_string(),
+            Some("ok") => "Claudometer - Claude Usage".to_string(),
+            Some(other) => format!("Claudometer - Claude Usage ({other})"),
+        }
+    } else if track_codex {
+        let status = snapshot
+            .and_then(|s| s.codex.as_ref())
+            .map(|c| status_label_codex(c.status()));
+        match status {
+            None => "Claudometer - Codex Usage (no data)".to_string(),
+            Some("ok") => "Claudometer - Codex Usage".to_string(),
+            Some(other) => format!("Claudometer - Codex Usage ({other})"),
+        }
+    } else {
+        "Claudometer - Usage (disabled)".to_string()
     };
 
     let header = MenuItem::with_id(app, "header", header_text, false, None::<&str>)?;
-    let last_updated =
-        MenuItem::with_id(app, "last_updated", "Last updated: --", false, None::<&str>)?;
-
-    let (session, weekly, model_items, error_text, last_updated_text) = match snapshot {
-        None => (
-            "Session: --%".to_string(),
-            "Weekly: --%".to_string(),
-            vec![MenuItem::with_id(
-                app,
-                "model_placeholder",
-                "Models (weekly): --%",
-                false,
-                None::<&str>,
-            )?],
-            "".to_string(),
-            "Last updated: --".to_string(),
-        ),
-        Some(UsageSnapshot::Claude {
-            snapshot:
-                ClaudeUsageSnapshot::Ok {
-                    session_percent,
-                    session_resets_at,
-                    weekly_percent,
-                    weekly_resets_at,
-                    models,
-                    last_updated_at,
-                    ..
-                },
-        }) => {
-            let session_time = session_resets_at
-                .as_deref()
-                .and_then(format_time_short)
-                .filter(|t| !t.is_empty())
-                .map(|t| format!(" (resets {t})"))
-                .unwrap_or_default();
-            let weekly_time = weekly_resets_at
-                .as_deref()
-                .and_then(format_time_short)
-                .filter(|t| !t.is_empty())
-                .map(|t| format!(" (resets {t})"))
-                .unwrap_or_default();
-
-            let model_items = if models.is_empty() {
-                vec![MenuItem::with_id(
-                    app,
-                    "model_none",
-                    "Models (weekly): (none)",
-                    false,
-                    None::<&str>,
-                )?]
-            } else {
-                let mut items = Vec::with_capacity(models.len());
-                for (idx, m) in models.iter().enumerate() {
-                    let model_time = m
-                        .resets_at
-                        .as_deref()
-                        .and_then(format_time_short)
-                        .filter(|t| !t.is_empty())
-                        .map(|t| format!(" (resets {t})"))
-                        .unwrap_or_default();
-                    items.push(MenuItem::with_id(
-                        app,
-                        format!("model_{idx}"),
-                        format!(
-                            "{} (weekly): {}{model_time}",
-                            m.name,
-                            format_percent(Some(m.percent))
-                        ),
-                        false,
-                        None::<&str>,
-                    )?);
-                }
-                items
-            };
-
-            (
-                format!(
-                    "Session: {}{session_time}",
-                    format_percent(Some(*session_percent))
-                ),
-                format!(
-                    "Weekly: {}{weekly_time}",
-                    format_percent(Some(*weekly_percent))
-                ),
-                model_items,
-                "".to_string(),
-                format!("Last updated: {}", format_datetime_full(last_updated_at)),
-            )
-        }
-        Some(UsageSnapshot::Codex {
-            snapshot:
-                CodexUsageSnapshot::Ok {
-                    session_percent,
-                    session_resets_at,
-                    weekly_percent,
-                    weekly_resets_at,
-                    last_updated_at,
-                },
-        }) => {
-            let session_time = session_resets_at
-                .as_deref()
-                .and_then(format_time_short)
-                .filter(|t| !t.is_empty())
-                .map(|t| format!(" (resets {t})"))
-                .unwrap_or_default();
-            let weekly_time = weekly_resets_at
-                .as_deref()
-                .and_then(format_time_short)
-                .filter(|t| !t.is_empty())
-                .map(|t| format!(" (resets {t})"))
-                .unwrap_or_default();
-
-            (
-                format!(
-                    "Session: {}{session_time}",
-                    format_percent(Some(*session_percent))
-                ),
-                format!(
-                    "Weekly: {}{weekly_time}",
-                    format_percent(Some(*weekly_percent))
-                ),
-                vec![MenuItem::with_id(
-                    app,
-                    "model_na",
-                    "Models (weekly): (n/a)",
-                    false,
-                    None::<&str>,
-                )?],
-                "".to_string(),
-                format!("Last updated: {}", format_datetime_full(last_updated_at)),
-            )
-        }
-        Some(s) => {
-            let error_message = match s {
-                UsageSnapshot::Claude { snapshot } => match snapshot {
-                    ClaudeUsageSnapshot::Unauthorized { error_message, .. }
-                    | ClaudeUsageSnapshot::RateLimited { error_message, .. }
-                    | ClaudeUsageSnapshot::Error { error_message, .. }
-                    | ClaudeUsageSnapshot::MissingKey { error_message, .. } => {
-                        error_message.clone().unwrap_or_default()
-                    }
-                    _ => String::new(),
-                },
-                UsageSnapshot::Codex { snapshot } => match snapshot {
-                    CodexUsageSnapshot::Unauthorized { error_message, .. }
-                    | CodexUsageSnapshot::RateLimited { error_message, .. }
-                    | CodexUsageSnapshot::Error { error_message, .. }
-                    | CodexUsageSnapshot::MissingKey { error_message, .. } => {
-                        error_message.clone().unwrap_or_default()
-                    }
-                    _ => String::new(),
-                },
-            };
-            (
-                "Session: --%".to_string(),
-                "Weekly: --%".to_string(),
-                vec![MenuItem::with_id(
-                    app,
-                    "model_placeholder",
-                    "Models (weekly): --%",
-                    false,
-                    None::<&str>,
-                )?],
-                error_message,
-                format!("Last updated: {}", format_datetime_full(s.last_updated_at())),
-            )
-        }
-    };
-
-    let session = MenuItem::with_id(app, "session", session, false, None::<&str>)?;
-    let weekly = MenuItem::with_id(app, "weekly", weekly, false, None::<&str>)?;
-    let _ = last_updated.set_text(last_updated_text);
-
-    let error_line = if error_text.trim().is_empty() {
-        None
-    } else {
-        let item = MenuItem::with_id(app, "error_line", "", false, None::<&str>)?;
-        let _ = item.set_text(error_text);
-        Some(item)
-    };
 
     let refresh_now = MenuItem::with_id(app, ITEM_REFRESH_NOW, "Refresh now", true, None::<&str>)?;
     let open_settings = MenuItem::with_id(
@@ -512,20 +409,382 @@ fn build_menu<R: Runtime>(
     let quit = MenuItem::with_id(app, ITEM_QUIT, "Quit", true, None::<&str>)?;
 
     let sep = PredefinedMenuItem::separator(app)?;
-    let sep2 = PredefinedMenuItem::separator(app)?;
-    let sep3 = PredefinedMenuItem::separator(app)?;
-    let sep4 = PredefinedMenuItem::separator(app)?;
+    let sep_between_sections = if track_claude && track_codex {
+        Some(PredefinedMenuItem::separator(app)?)
+    } else {
+        None
+    };
+    let sep_before_actions = PredefinedMenuItem::separator(app)?;
+    let sep_before_quit = PredefinedMenuItem::separator(app)?;
 
-    let mut refs: Vec<&dyn tauri::menu::IsMenuItem<R>> = vec![&header, &sep, &session, &weekly];
-    for item in &model_items {
-        refs.push(item);
+    let mut refs: Vec<&dyn tauri::menu::IsMenuItem<R>> = vec![&header, &sep];
+
+    let build_claude_items = |snap: Option<&ClaudeUsageSnapshot>| -> tauri::Result<Vec<MenuItem<R>>> {
+        let status = snap.map(|s| s.status());
+        let label = match status {
+            None => "Claude (no data)".to_string(),
+            Some(UsageStatus::Ok) => "Claude".to_string(),
+            Some(st) => format!("Claude ({})", status_label_claude(st)),
+        };
+        let mut items: Vec<MenuItem<R>> = vec![MenuItem::with_id(
+            app,
+            "claude_section_header",
+            label,
+            false,
+            None::<&str>,
+        )?];
+
+        match snap {
+            Some(ClaudeUsageSnapshot::Ok {
+                session_percent,
+                session_resets_at,
+                weekly_percent,
+                weekly_resets_at,
+                models,
+                last_updated_at,
+                ..
+            }) => {
+                let session_time = session_resets_at
+                    .as_deref()
+                    .and_then(format_time_short)
+                    .filter(|t| !t.is_empty())
+                    .map(|t| format!(" (resets {t})"))
+                    .unwrap_or_default();
+                let weekly_time = weekly_resets_at
+                    .as_deref()
+                    .and_then(format_time_short)
+                    .filter(|t| !t.is_empty())
+                    .map(|t| format!(" (resets {t})"))
+                    .unwrap_or_default();
+
+                items.push(MenuItem::with_id(
+                    app,
+                    "claude_session",
+                    format!(
+                        "Session: {}{session_time}",
+                        format_percent(Some(*session_percent))
+                    ),
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "claude_weekly",
+                    format!(
+                        "Weekly: {}{weekly_time}",
+                        format_percent(Some(*weekly_percent))
+                    ),
+                    false,
+                    None::<&str>,
+                )?);
+
+                if models.is_empty() {
+                    items.push(MenuItem::with_id(
+                        app,
+                        "claude_model_none",
+                        "Models (weekly): (none)",
+                        false,
+                        None::<&str>,
+                    )?);
+                } else {
+                    for (idx, m) in models.iter().enumerate() {
+                        let model_time = m
+                            .resets_at
+                            .as_deref()
+                            .and_then(format_time_short)
+                            .filter(|t| !t.is_empty())
+                            .map(|t| format!(" (resets {t})"))
+                            .unwrap_or_default();
+                        items.push(MenuItem::with_id(
+                            app,
+                            format!("claude_model_{idx}"),
+                            format!(
+                                "{} (weekly): {}{model_time}",
+                                m.name,
+                                format_percent(Some(m.percent))
+                            ),
+                            false,
+                            None::<&str>,
+                        )?);
+                    }
+                }
+
+                items.push(MenuItem::with_id(
+                    app,
+                    "claude_last_updated",
+                    format!("Last updated: {}", format_datetime_full(last_updated_at)),
+                    false,
+                    None::<&str>,
+                )?);
+            }
+            Some(other) => {
+                let error_message = match other {
+                    ClaudeUsageSnapshot::Unauthorized { error_message, .. }
+                    | ClaudeUsageSnapshot::RateLimited { error_message, .. }
+                    | ClaudeUsageSnapshot::Error { error_message, .. }
+                    | ClaudeUsageSnapshot::MissingKey { error_message, .. } => {
+                        error_message.clone().unwrap_or_default()
+                    }
+                    _ => String::new(),
+                };
+
+                items.push(MenuItem::with_id(
+                    app,
+                    "claude_session",
+                    "Session: --%",
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "claude_weekly",
+                    "Weekly: --%",
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "claude_model_placeholder",
+                    "Models (weekly): --%",
+                    false,
+                    None::<&str>,
+                )?);
+                if !error_message.trim().is_empty() {
+                    items.push(MenuItem::with_id(
+                        app,
+                        "claude_error",
+                        error_message,
+                        false,
+                        None::<&str>,
+                    )?);
+                }
+                items.push(MenuItem::with_id(
+                    app,
+                    "claude_last_updated",
+                    format!("Last updated: {}", format_datetime_full(other.last_updated_at())),
+                    false,
+                    None::<&str>,
+                )?);
+            }
+            None => {
+                items.push(MenuItem::with_id(
+                    app,
+                    "claude_session",
+                    "Session: --%",
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "claude_weekly",
+                    "Weekly: --%",
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "claude_model_placeholder",
+                    "Models (weekly): --%",
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "claude_last_updated",
+                    "Last updated: --",
+                    false,
+                    None::<&str>,
+                )?);
+            }
+        }
+
+        Ok(items)
+    };
+
+    let build_codex_items = |snap: Option<&CodexUsageSnapshot>| -> tauri::Result<Vec<MenuItem<R>>> {
+        let status = snap.map(|s| s.status());
+        let label = match status {
+            None => "Codex (no data)".to_string(),
+            Some(UsageStatus::Ok) => "Codex".to_string(),
+            Some(st) => format!("Codex ({})", status_label_codex(st)),
+        };
+        let mut items: Vec<MenuItem<R>> = vec![MenuItem::with_id(
+            app,
+            "codex_section_header",
+            label,
+            false,
+            None::<&str>,
+        )?];
+
+        match snap {
+            Some(CodexUsageSnapshot::Ok {
+                session_percent,
+                session_resets_at,
+                weekly_percent,
+                weekly_resets_at,
+                last_updated_at,
+            }) => {
+                let session_time = session_resets_at
+                    .as_deref()
+                    .and_then(format_time_short)
+                    .filter(|t| !t.is_empty())
+                    .map(|t| format!(" (resets {t})"))
+                    .unwrap_or_default();
+                let weekly_time = weekly_resets_at
+                    .as_deref()
+                    .and_then(format_time_short)
+                    .filter(|t| !t.is_empty())
+                    .map(|t| format!(" (resets {t})"))
+                    .unwrap_or_default();
+
+                items.push(MenuItem::with_id(
+                    app,
+                    "codex_session",
+                    format!(
+                        "Session: {}{session_time}",
+                        format_percent(Some(*session_percent))
+                    ),
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "codex_weekly",
+                    format!(
+                        "Weekly: {}{weekly_time}",
+                        format_percent(Some(*weekly_percent))
+                    ),
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "codex_model_na",
+                    "Models (weekly): (n/a)",
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "codex_last_updated",
+                    format!("Last updated: {}", format_datetime_full(last_updated_at)),
+                    false,
+                    None::<&str>,
+                )?);
+            }
+            Some(other) => {
+                let error_message = match other {
+                    CodexUsageSnapshot::Unauthorized { error_message, .. }
+                    | CodexUsageSnapshot::RateLimited { error_message, .. }
+                    | CodexUsageSnapshot::Error { error_message, .. }
+                    | CodexUsageSnapshot::MissingKey { error_message, .. } => {
+                        error_message.clone().unwrap_or_default()
+                    }
+                    _ => String::new(),
+                };
+                items.push(MenuItem::with_id(
+                    app,
+                    "codex_session",
+                    "Session: --%",
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "codex_weekly",
+                    "Weekly: --%",
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "codex_model_placeholder",
+                    "Models (weekly): --%",
+                    false,
+                    None::<&str>,
+                )?);
+                if !error_message.trim().is_empty() {
+                    items.push(MenuItem::with_id(
+                        app,
+                        "codex_error",
+                        error_message,
+                        false,
+                        None::<&str>,
+                    )?);
+                }
+                items.push(MenuItem::with_id(
+                    app,
+                    "codex_last_updated",
+                    format!("Last updated: {}", format_datetime_full(other.last_updated_at())),
+                    false,
+                    None::<&str>,
+                )?);
+            }
+            None => {
+                items.push(MenuItem::with_id(
+                    app,
+                    "codex_session",
+                    "Session: --%",
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "codex_weekly",
+                    "Weekly: --%",
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "codex_model_placeholder",
+                    "Models (weekly): --%",
+                    false,
+                    None::<&str>,
+                )?);
+                items.push(MenuItem::with_id(
+                    app,
+                    "codex_last_updated",
+                    "Last updated: --",
+                    false,
+                    None::<&str>,
+                )?);
+            }
+        }
+
+        Ok(items)
+    };
+
+    let claude_items = if track_claude {
+        let claude = snapshot.and_then(|s| s.claude.as_ref());
+        Some(build_claude_items(claude)?)
+    } else {
+        None
+    };
+
+    if let Some(claude_items) = &claude_items {
+        for item in claude_items {
+            refs.push(item);
+        }
     }
-    if let Some(error_line) = &error_line {
-        refs.push(error_line);
+
+    if let Some(sep_between_sections) = &sep_between_sections {
+        refs.push(sep_between_sections);
     }
-    refs.push(&sep2);
-    refs.push(&last_updated);
-    refs.push(&sep3);
+
+    let codex_items = if track_codex {
+        let codex = snapshot.and_then(|s| s.codex.as_ref());
+        Some(build_codex_items(codex)?)
+    } else {
+        None
+    };
+
+    if let Some(codex_items) = &codex_items {
+        for item in codex_items {
+            refs.push(item);
+        }
+    }
+    refs.push(&sep_before_actions);
     refs.push(&refresh_now);
     refs.push(&open_settings);
     refs.push(&check_updates);
@@ -566,9 +825,15 @@ fn build_menu<R: Runtime>(
         refs.push(&debug_set_near);
         refs.push(&debug_bump_resets);
         refs.push(&debug_clear);
+    } else {
+        let _ = sep_debug;
+        let _ = debug_set_below;
+        let _ = debug_set_near;
+        let _ = debug_bump_resets;
+        let _ = debug_clear;
     }
 
-    refs.push(&sep4);
+    refs.push(&sep_before_quit);
     refs.push(&quit);
 
     Menu::with_items(app, refs.as_slice())
@@ -609,9 +874,9 @@ mod tests {
         assert_eq!(normalize_locale_tag("C.UTF-8"), "POSIX");
     }
 
-    fn make_ok_snapshot(session_percent: f64) -> UsageSnapshot {
-        UsageSnapshot::Claude {
-            snapshot: ClaudeUsageSnapshot::Ok {
+    fn make_claude_ok_bundle(session_percent: f64) -> UsageSnapshotBundle {
+        UsageSnapshotBundle {
+            claude: Some(ClaudeUsageSnapshot::Ok {
                 organization_id: "org-123".to_string(),
                 session_percent,
                 session_resets_at: Some("2026-01-07T05:00:00Z".to_string()),
@@ -619,131 +884,196 @@ mod tests {
                 weekly_resets_at: Some("2026-01-13T00:00:00Z".to_string()),
                 models: vec![],
                 last_updated_at: "2026-01-06T22:59:31Z".to_string(),
-            },
+            }),
+            codex: None,
+        }
+    }
+
+    fn make_codex_ok_bundle(session_percent: f64) -> UsageSnapshotBundle {
+        UsageSnapshotBundle {
+            claude: None,
+            codex: Some(CodexUsageSnapshot::Ok {
+                session_percent,
+                session_resets_at: Some("2026-01-07T05:00:00Z".to_string()),
+                weekly_percent: 30.0,
+                weekly_resets_at: Some("2026-01-13T00:00:00Z".to_string()),
+                last_updated_at: "2026-01-06T22:59:31Z".to_string(),
+            }),
         }
     }
 
     #[test]
     fn format_tray_title_shows_percentage() {
-        let snapshot = make_ok_snapshot(25.0);
-        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        let snapshot = make_claude_ok_bundle(25.0);
+        let title = format_tray_title(true, false, Some(&snapshot));
         assert_eq!(title, "CL 25%");
     }
 
     #[test]
     fn format_tray_title_rounds_49_point_9_to_50() {
-        let snapshot = make_ok_snapshot(49.9);
-        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        let snapshot = make_claude_ok_bundle(49.9);
+        let title = format_tray_title(true, false, Some(&snapshot));
         assert_eq!(title, "CL 50%");
     }
 
     #[test]
     fn format_tray_title_shows_100_percent() {
-        let snapshot = make_ok_snapshot(100.0);
-        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        let snapshot = make_claude_ok_bundle(100.0);
+        let title = format_tray_title(true, false, Some(&snapshot));
         assert_eq!(title, "CL 100%");
     }
 
     #[test]
     fn format_tray_title_shows_placeholder_for_none() {
-        let title = format_tray_title(UsageProvider::Claude, None);
+        let title = format_tray_title(true, false, None);
         assert_eq!(title, "CL --%");
     }
 
     #[test]
     fn format_tray_title_shows_placeholder_for_unauthorized() {
-        let snapshot = UsageSnapshot::Claude {
-            snapshot: ClaudeUsageSnapshot::Unauthorized {
+        let snapshot = UsageSnapshotBundle {
+            claude: Some(ClaudeUsageSnapshot::Unauthorized {
                 organization_id: None,
                 error_message: Some("Invalid session".to_string()),
                 last_updated_at: "2026-01-06T22:59:31Z".to_string(),
-            },
+            }),
+            codex: None,
         };
-        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        let title = format_tray_title(true, false, Some(&snapshot));
         assert_eq!(title, "CL --%");
     }
 
     #[test]
     fn format_tray_title_shows_placeholder_for_missing_key() {
-        let snapshot = UsageSnapshot::Claude {
-            snapshot: ClaudeUsageSnapshot::MissingKey {
+        let snapshot = UsageSnapshotBundle {
+            claude: Some(ClaudeUsageSnapshot::MissingKey {
                 organization_id: None,
                 error_message: None,
                 last_updated_at: "2026-01-06T22:59:31Z".to_string(),
-            },
+            }),
+            codex: None,
         };
-        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        let title = format_tray_title(true, false, Some(&snapshot));
         assert_eq!(title, "CL --%");
     }
 
     #[test]
     fn format_tray_title_shows_placeholder_for_rate_limited() {
-        let snapshot = UsageSnapshot::Claude {
-            snapshot: ClaudeUsageSnapshot::RateLimited {
+        let snapshot = UsageSnapshotBundle {
+            claude: Some(ClaudeUsageSnapshot::RateLimited {
                 organization_id: None,
                 error_message: Some("Too many requests".to_string()),
                 last_updated_at: "2026-01-06T22:59:31Z".to_string(),
-            },
+            }),
+            codex: None,
         };
-        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        let title = format_tray_title(true, false, Some(&snapshot));
         assert_eq!(title, "CL --%");
     }
 
     #[test]
     fn format_tray_title_shows_placeholder_for_error() {
-        let snapshot = UsageSnapshot::Claude {
-            snapshot: ClaudeUsageSnapshot::Error {
+        let snapshot = UsageSnapshotBundle {
+            claude: Some(ClaudeUsageSnapshot::Error {
                 organization_id: None,
                 error_message: Some("Network error".to_string()),
                 last_updated_at: "2026-01-06T22:59:31Z".to_string(),
-            },
+            }),
+            codex: None,
         };
-        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        let title = format_tray_title(true, false, Some(&snapshot));
         assert_eq!(title, "CL --%");
     }
 
     #[test]
     fn format_tray_title_rounds_percentage_correctly() {
-        let snapshot = make_ok_snapshot(75.7);
-        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        let snapshot = make_claude_ok_bundle(75.7);
+        let title = format_tray_title(true, false, Some(&snapshot));
         assert!(title.contains("76%"), "75.7 should round to 76");
 
-        let snapshot = make_ok_snapshot(75.4);
-        let title = format_tray_title(UsageProvider::Claude, Some(&snapshot));
+        let snapshot = make_claude_ok_bundle(75.4);
+        let title = format_tray_title(true, false, Some(&snapshot));
         assert!(title.contains("75%"), "75.4 should round to 75");
     }
 
     #[test]
     fn usage_level_returns_green_below_50() {
-        assert_eq!(usage_level(Some(&make_ok_snapshot(0.0))), 0);
-        assert_eq!(usage_level(Some(&make_ok_snapshot(25.0))), 0);
-        assert_eq!(usage_level(Some(&make_ok_snapshot(49.9))), 0);
+        assert_eq!(
+            usage_level(true, false, Some(&make_claude_ok_bundle(0.0))),
+            0
+        );
+        assert_eq!(
+            usage_level(true, false, Some(&make_claude_ok_bundle(25.0))),
+            0
+        );
+        assert_eq!(
+            usage_level(true, false, Some(&make_claude_ok_bundle(49.9))),
+            0
+        );
     }
 
     #[test]
-    fn usage_level_returns_orange_between_50_and_80() {
-        assert_eq!(usage_level(Some(&make_ok_snapshot(50.0))), 1);
-        assert_eq!(usage_level(Some(&make_ok_snapshot(65.0))), 1);
-        assert_eq!(usage_level(Some(&make_ok_snapshot(80.0))), 1);
+    fn usage_level_returns_orange_between_50_and_70() {
+        assert_eq!(
+            usage_level(true, false, Some(&make_claude_ok_bundle(50.0))),
+            1
+        );
+        assert_eq!(
+            usage_level(true, false, Some(&make_claude_ok_bundle(65.0))),
+            1
+        );
+        assert_eq!(
+            usage_level(true, false, Some(&make_claude_ok_bundle(70.0))),
+            1
+        );
     }
 
     #[test]
-    fn usage_level_returns_red_above_80() {
-        assert_eq!(usage_level(Some(&make_ok_snapshot(80.1))), 2);
-        assert_eq!(usage_level(Some(&make_ok_snapshot(90.0))), 2);
-        assert_eq!(usage_level(Some(&make_ok_snapshot(100.0))), 2);
+    fn usage_level_returns_red_above_70() {
+        assert_eq!(
+            usage_level(true, false, Some(&make_claude_ok_bundle(70.1))),
+            2
+        );
+        assert_eq!(
+            usage_level(true, false, Some(&make_claude_ok_bundle(90.0))),
+            2
+        );
+        assert_eq!(
+            usage_level(true, false, Some(&make_claude_ok_bundle(100.0))),
+            2
+        );
     }
 
     #[test]
     fn usage_level_returns_unknown_for_error_states() {
-        assert_eq!(usage_level(None), -1);
-        let error = UsageSnapshot::Claude {
-            snapshot: ClaudeUsageSnapshot::Error {
+        assert_eq!(usage_level(true, false, None), -1);
+        let error = UsageSnapshotBundle {
+            claude: Some(ClaudeUsageSnapshot::Error {
                 organization_id: None,
                 error_message: None,
                 last_updated_at: "2026-01-06T22:59:31Z".to_string(),
-            },
+            }),
+            codex: None,
         };
-        assert_eq!(usage_level(Some(&error)), -1);
+        assert_eq!(usage_level(true, false, Some(&error)), -1);
+    }
+
+    #[test]
+    fn format_tray_title_in_dual_mode_shows_both_providers() {
+        let snapshot = UsageSnapshotBundle {
+            claude: make_claude_ok_bundle(25.0).claude,
+            codex: make_codex_ok_bundle(10.0).codex,
+        };
+        let title = format_tray_title(true, true, Some(&snapshot));
+        assert_eq!(title, "CL 25% · CX 10%");
+    }
+
+    #[test]
+    fn usage_level_in_dual_mode_uses_max_severity() {
+        let snapshot = UsageSnapshotBundle {
+            claude: make_claude_ok_bundle(10.0).claude,
+            codex: make_codex_ok_bundle(95.0).codex,
+        };
+        assert_eq!(usage_level(true, true, Some(&snapshot)), 2);
     }
 }

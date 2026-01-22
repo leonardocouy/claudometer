@@ -7,8 +7,7 @@ import type { IpcResult, SaveSettingsPayload, SettingsState } from '../../common
 import type {
   ClaudeOrganization,
   CodexUsageSource,
-  UsageProvider,
-  UsageSnapshot,
+  UsageSnapshotBundle,
   UsageSource,
 } from '../../common/types.ts';
 
@@ -28,6 +27,14 @@ async function settingsSave(payload: SaveSettingsPayload): Promise<IpcResult<nul
 
 async function settingsForgetKey(): Promise<IpcResult<null>> {
   return await invoke<IpcResult<null>>('settings_forget_key');
+}
+
+async function settingsForgetClaudeKey(): Promise<IpcResult<null>> {
+  return await invoke<IpcResult<null>>('settings_forget_claude_key');
+}
+
+async function settingsForgetCodexCookie(): Promise<IpcResult<null>> {
+  return await invoke<IpcResult<null>>('settings_forget_codex_cookie');
 }
 
 async function settingsRefreshNow(): Promise<IpcResult<null>> {
@@ -62,35 +69,61 @@ const escapeHtml = (value: string): string =>
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
 
-function renderSnapshot(snapshot: UsageSnapshot | null): string {
+function renderSnapshot(snapshot: UsageSnapshotBundle | null): string {
   if (!snapshot) return '<strong>Status:</strong> no data';
-  const providerLabel = snapshot.provider === 'claude' ? 'Claude' : 'Codex';
-  if (snapshot.status !== 'ok') {
-    const msg = snapshot.errorMessage
-      ? `<div class="error">${escapeHtml(snapshot.errorMessage)}</div>`
-      : '';
-    return `<strong>Provider:</strong> ${providerLabel}<br/><strong>Status:</strong> ${snapshot.status}${msg}<div>Last updated: ${escapeHtml(snapshot.lastUpdatedAt)}</div>`;
-  }
-  const base = `
-    <strong>Provider:</strong> ${providerLabel}<br/>
-    <strong>Status:</strong> ok<br/>
-    Session: ${Math.round(snapshot.sessionPercent)}%<br/>
-    Weekly: ${Math.round(snapshot.weeklyPercent)}%<br/>
-  `;
 
-  if (snapshot.provider === 'claude') {
-    const models = snapshot.models.length
-      ? snapshot.models
+  const renderClaude = (snap: UsageSnapshotBundle['claude']) => {
+    if (!snap) return '<strong>Claude:</strong> no data';
+
+    if (snap.status !== 'ok') {
+      const msg = snap.errorMessage
+        ? `<div class="error">${escapeHtml(snap.errorMessage)}</div>`
+        : '';
+      return `<strong>Claude:</strong> ${snap.status}${msg}<div>Last updated: ${escapeHtml(
+        snap.lastUpdatedAt,
+      )}</div>`;
+    }
+
+    const models = snap.models.length
+      ? snap.models
           .map((m) => {
             const reset = m.resetsAt ? ` (resets ${new Date(m.resetsAt).toLocaleString()})` : '';
             return `${escapeHtml(m.name)} (weekly): ${Math.round(m.percent)}%${reset}`;
           })
           .join('<br/>')
       : 'Models (weekly): (none)';
-    return `${base}${models}<br/>Last updated: ${escapeHtml(snapshot.lastUpdatedAt)}`;
-  }
 
-  return `${base}Models (weekly): (n/a)<br/>Last updated: ${escapeHtml(snapshot.lastUpdatedAt)}`;
+    return `
+      <strong>Claude:</strong> ok<br/>
+      Session: ${Math.round(snap.sessionPercent)}%<br/>
+      Weekly: ${Math.round(snap.weeklyPercent)}%<br/>
+      ${models}<br/>
+      Last updated: ${escapeHtml(snap.lastUpdatedAt)}
+    `;
+  };
+
+  const renderCodex = (snap: UsageSnapshotBundle['codex']) => {
+    if (!snap) return '<strong>Codex:</strong> no data';
+
+    if (snap.status !== 'ok') {
+      const msg = snap.errorMessage
+        ? `<div class="error">${escapeHtml(snap.errorMessage)}</div>`
+        : '';
+      return `<strong>Codex:</strong> ${snap.status}${msg}<div>Last updated: ${escapeHtml(
+        snap.lastUpdatedAt,
+      )}</div>`;
+    }
+
+    return `
+      <strong>Codex:</strong> ok<br/>
+      Session: ${Math.round(snap.sessionPercent)}%<br/>
+      Weekly: ${Math.round(snap.weeklyPercent)}%<br/>
+      Models (weekly): (n/a)<br/>
+      Last updated: ${escapeHtml(snap.lastUpdatedAt)}
+    `;
+  };
+
+  return `${renderClaude(snapshot.claude)}<br/><br/>${renderCodex(snapshot.codex)}`;
 }
 
 function setStatus(statusBoxEl: HTMLElement, html: string): void {
@@ -123,7 +156,8 @@ function setResultError(statusBoxEl: HTMLElement, result: IpcResult<unknown>): v
 }
 
 type Ui = {
-  providerEl: HTMLSelectElement;
+  trackClaudeEl: HTMLInputElement;
+  trackCodexEl: HTMLInputElement;
   claudeSectionEl: HTMLElement;
   codexSectionEl: HTMLElement;
 
@@ -148,30 +182,30 @@ type Ui = {
   updatesStartupEl: HTMLInputElement;
 
   forgetKeyButton: HTMLButtonElement;
+  forgetClaudeKeyButton: HTMLButtonElement;
+  forgetCodexCookieButton: HTMLButtonElement;
   statusBoxEl: HTMLElement;
 };
 
 function applyVisibility(
   ui: Ui,
-  provider: UsageProvider,
+  trackClaudeEnabled: boolean,
+  trackCodexEnabled: boolean,
   claudeSource: UsageSource,
   codexSource: CodexUsageSource,
 ) {
-  ui.claudeSectionEl.toggleAttribute('hidden', provider !== 'claude');
-  ui.codexSectionEl.toggleAttribute('hidden', provider !== 'codex');
+  ui.claudeSectionEl.toggleAttribute('hidden', !trackClaudeEnabled);
+  ui.codexSectionEl.toggleAttribute('hidden', !trackCodexEnabled);
 
-  ui.webOnlySectionEl.toggleAttribute('hidden', provider !== 'claude' || claudeSource !== 'web');
-  ui.cliHintEl.toggleAttribute('hidden', provider !== 'claude' || claudeSource !== 'cli');
+  ui.webOnlySectionEl.toggleAttribute('hidden', !trackClaudeEnabled || claudeSource !== 'web');
+  ui.cliHintEl.toggleAttribute('hidden', !trackClaudeEnabled || claudeSource !== 'cli');
 
-  const codexCookieVisible =
-    provider === 'codex' && (codexSource === 'web' || codexSource === 'auto');
+  const codexCookieVisible = trackCodexEnabled && (codexSource === 'web' || codexSource === 'auto');
   ui.codexCookieSectionEl.toggleAttribute('hidden', !codexCookieVisible);
 
-  const showForget =
-    (provider === 'claude' && claudeSource === 'web') ||
-    (provider === 'codex' && codexCookieVisible);
-  ui.forgetKeyButton.toggleAttribute('hidden', !showForget);
-  ui.forgetKeyButton.textContent = provider === 'codex' ? 'Forget cookie' : 'Forget key';
+  ui.forgetKeyButton.toggleAttribute('hidden', true);
+  ui.forgetClaudeKeyButton.toggleAttribute('hidden', !trackClaudeEnabled || claudeSource !== 'web');
+  ui.forgetCodexCookieButton.toggleAttribute('hidden', !codexCookieVisible);
 
   ui.codexHintEl.textContent =
     codexSource === 'oauth'
@@ -185,10 +219,17 @@ function applyVisibility(
 
 async function loadState(ui: Ui): Promise<SettingsState> {
   const state = await settingsGetState();
-  ui.providerEl.value = state.provider;
+  ui.trackClaudeEl.checked = Boolean(state.trackClaudeEnabled);
+  ui.trackCodexEl.checked = Boolean(state.trackCodexEnabled);
   ui.usageSourceEl.value = state.usageSource;
   ui.codexUsageSourceEl.value = state.codexUsageSource;
-  applyVisibility(ui, state.provider, state.usageSource, state.codexUsageSource);
+  applyVisibility(
+    ui,
+    state.trackClaudeEnabled,
+    state.trackCodexEnabled,
+    state.usageSource,
+    state.codexUsageSource,
+  );
 
   ui.rememberKeyEl.checked = Boolean(state.rememberSessionKey);
   ui.rememberCodexCookieEl.checked = Boolean(state.rememberCodexCookie);
@@ -222,12 +263,23 @@ function renderApp(root: HTMLElement): void {
     <h1>Claudometer</h1>
 
     <div class="row">
-      <label for="provider">Provider</label>
-      <select id="provider">
-        <option value="claude">Claude</option>
-        <option value="codex">Codex</option>
-      </select>
-      <div class="hint">Select which provider to track in the tray.</div>
+      <div class="setting">
+        <div class="setting-text">
+          <label class="setting-title" for="trackClaude">Track Claude</label>
+          <div class="hint">Show Claude usage in the tray title.</div>
+        </div>
+        <input id="trackClaude" class="setting-checkbox" type="checkbox" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="setting">
+        <div class="setting-text">
+          <label class="setting-title" for="trackCodex">Track Codex</label>
+          <div class="hint">Show Codex usage in the tray title.</div>
+        </div>
+        <input id="trackCodex" class="setting-checkbox" type="checkbox" />
+      </div>
     </div>
 
     <div id="claudeSection">
@@ -341,6 +393,8 @@ function renderApp(root: HTMLElement): void {
     <div class="buttons">
       <button id="refreshNow">Refresh now</button>
       <button id="forgetKey" class="danger" hidden>Forget</button>
+      <button id="forgetClaudeKey" class="danger" hidden>Forget Claude key</button>
+      <button id="forgetCodexCookie" class="danger" hidden>Forget Codex cookie</button>
       <button id="save" class="primary">Save</button>
     </div>
 
@@ -359,7 +413,8 @@ function renderApp(root: HTMLElement): void {
   `;
 
   const ui: Ui = {
-    providerEl: el<HTMLSelectElement>(root, '#provider'),
+    trackClaudeEl: el<HTMLInputElement>(root, '#trackClaude'),
+    trackCodexEl: el<HTMLInputElement>(root, '#trackCodex'),
     claudeSectionEl: el<HTMLElement>(root, '#claudeSection'),
     codexSectionEl: el<HTMLElement>(root, '#codexSection'),
 
@@ -384,16 +439,29 @@ function renderApp(root: HTMLElement): void {
     updatesStartupEl: el<HTMLInputElement>(root, '#updatesStartup'),
 
     forgetKeyButton: el<HTMLButtonElement>(root, '#forgetKey'),
+    forgetClaudeKeyButton: el<HTMLButtonElement>(root, '#forgetClaudeKey'),
+    forgetCodexCookieButton: el<HTMLButtonElement>(root, '#forgetCodexCookie'),
     statusBoxEl: el<HTMLElement>(root, '#statusBox'),
   };
 
   const refreshNowButton = el<HTMLButtonElement>(root, '#refreshNow');
   const saveButton = el<HTMLButtonElement>(root, '#save');
 
-  ui.providerEl.addEventListener('change', () => {
+  ui.trackClaudeEl.addEventListener('change', () => {
     applyVisibility(
       ui,
-      ui.providerEl.value as UsageProvider,
+      ui.trackClaudeEl.checked,
+      ui.trackCodexEl.checked,
+      ui.usageSourceEl.value as UsageSource,
+      ui.codexUsageSourceEl.value as CodexUsageSource,
+    );
+  });
+
+  ui.trackCodexEl.addEventListener('change', () => {
+    applyVisibility(
+      ui,
+      ui.trackClaudeEl.checked,
+      ui.trackCodexEl.checked,
       ui.usageSourceEl.value as UsageSource,
       ui.codexUsageSourceEl.value as CodexUsageSource,
     );
@@ -401,7 +469,8 @@ function renderApp(root: HTMLElement): void {
   ui.usageSourceEl.addEventListener('change', () => {
     applyVisibility(
       ui,
-      ui.providerEl.value as UsageProvider,
+      ui.trackClaudeEl.checked,
+      ui.trackCodexEl.checked,
       ui.usageSourceEl.value as UsageSource,
       ui.codexUsageSourceEl.value as CodexUsageSource,
     );
@@ -409,7 +478,8 @@ function renderApp(root: HTMLElement): void {
   ui.codexUsageSourceEl.addEventListener('change', () => {
     applyVisibility(
       ui,
-      ui.providerEl.value as UsageProvider,
+      ui.trackClaudeEl.checked,
+      ui.trackCodexEl.checked,
       ui.usageSourceEl.value as UsageSource,
       ui.codexUsageSourceEl.value as CodexUsageSource,
     );
@@ -427,30 +497,42 @@ function renderApp(root: HTMLElement): void {
     await loadState(ui);
   });
 
+  ui.forgetClaudeKeyButton.addEventListener('click', async () => {
+    const result = await settingsForgetClaudeKey();
+    setResultError(ui.statusBoxEl, result);
+    await loadState(ui);
+  });
+
+  ui.forgetCodexCookieButton.addEventListener('click', async () => {
+    const result = await settingsForgetCodexCookie();
+    setResultError(ui.statusBoxEl, result);
+    await loadState(ui);
+  });
+
   saveButton.addEventListener('click', async () => {
-    const provider = ui.providerEl.value as UsageProvider;
     const usageSource = ui.usageSourceEl.value as UsageSource;
     const codexUsageSource = ui.codexUsageSourceEl.value as CodexUsageSource;
+    const trackClaudeEnabled = ui.trackClaudeEl.checked;
+    const trackCodexEnabled = ui.trackCodexEl.checked;
 
     const payload: SaveSettingsPayload = {
-      provider,
+      trackClaudeEnabled,
+      trackCodexEnabled,
       usageSource,
       sessionKey:
-        provider === 'claude' && usageSource === 'web'
+        trackClaudeEnabled && usageSource === 'web'
           ? ui.sessionKeyEl.value || undefined
           : undefined,
       rememberSessionKey: ui.rememberKeyEl.checked,
       codexUsageSource,
-      codexCookie: provider === 'codex' ? ui.codexCookieEl.value || undefined : undefined,
+      codexCookie: trackCodexEnabled ? ui.codexCookieEl.value || undefined : undefined,
       rememberCodexCookie: ui.rememberCodexCookieEl.checked,
       refreshIntervalSeconds: Number(ui.refreshIntervalEl.value || 60),
       notifyOnUsageReset: ui.notifyResetEl.checked,
       autostartEnabled: ui.autostartEl.checked,
       checkUpdatesOnStartup: ui.updatesStartupEl.checked,
       selectedOrganizationId:
-        provider === 'claude' && usageSource === 'web'
-          ? ui.orgSelectEl.value || undefined
-          : undefined,
+        trackClaudeEnabled && usageSource === 'web' ? ui.orgSelectEl.value || undefined : undefined,
     };
 
     const result = await settingsSave(payload);
@@ -476,7 +558,7 @@ function renderApp(root: HTMLElement): void {
 
   void loadState(ui);
 
-  void listen<UsageSnapshot | null>('snapshot:updated', (event) => {
+  void listen<UsageSnapshotBundle | null>('snapshot:updated', (event) => {
     setStatus(ui.statusBoxEl, renderSnapshot(event.payload));
   });
 

@@ -19,6 +19,14 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 # Claudometer (Tauri)
 
+## Philosophy
+
+This codebase will outlive you. Every shortcut becomes someone else's burden. Every hack compounds into technical debt that slows the whole team down.
+
+You are not just writing code. You are shaping the future of this project. The patterns you establish will be copied. The corners you cut will be cut again.
+
+Fight entropy. Leave the codebase better than you found it.
+
 ## Project Overview
 
 **Claudometer** is a tray-first desktop application for **macOS + Linux** that shows Claude usage limits in near real time.

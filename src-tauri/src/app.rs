@@ -32,6 +32,8 @@ pub fn run() {
             commands::settings_get_state,
             commands::settings_save,
             commands::settings_forget_key,
+            commands::settings_forget_claude_key,
+            commands::settings_forget_codex_cookie,
             commands::settings_refresh_now,
             commands::open_settings,
             commands::check_for_updates,
@@ -187,7 +189,11 @@ pub fn run() {
                 refresh: refresh.clone(),
             };
 
-            state.tray.update_snapshot(state.provider(), None);
+            state.tray.update_snapshot(
+                state.track_claude_enabled(),
+                state.track_codex_enabled(),
+                None,
+            );
             commands::spawn_refresh_loop(app_handle.clone(), state.clone(), rx);
 
             if settings.get_bool(crate::settings::KEY_CHECK_UPDATES_ON_STARTUP, true) {

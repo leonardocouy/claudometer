@@ -1,8 +1,7 @@
 import type {
   ClaudeOrganization,
   CodexUsageSource,
-  UsageProvider,
-  UsageSnapshot,
+  UsageSnapshotBundle,
   UsageSource,
 } from './types.ts';
 
@@ -11,6 +10,8 @@ export const ipcChannels = {
     getState: 'settings:getState',
     save: 'settings:save',
     forgetKey: 'settings:forgetKey',
+    forgetClaudeKey: 'settings:forgetClaudeKey',
+    forgetCodexCookie: 'settings:forgetCodexCookie',
     refreshNow: 'settings:refreshNow',
   },
   events: {
@@ -19,7 +20,8 @@ export const ipcChannels = {
 } as const;
 
 export type SettingsState = {
-  provider: UsageProvider;
+  trackClaudeEnabled: boolean;
+  trackCodexEnabled: boolean;
   usageSource: UsageSource;
   rememberSessionKey: boolean;
   codexUsageSource: CodexUsageSource;
@@ -30,12 +32,13 @@ export type SettingsState = {
   checkUpdatesOnStartup: boolean;
   organizations: ClaudeOrganization[];
   selectedOrganizationId?: string;
-  latestSnapshot: UsageSnapshot | null;
+  latestSnapshot: UsageSnapshotBundle | null;
   keyringAvailable: boolean;
 };
 
 export type SaveSettingsPayload = {
-  provider: UsageProvider;
+  trackClaudeEnabled: boolean;
+  trackCodexEnabled: boolean;
   sessionKey?: string;
   rememberSessionKey: boolean;
   codexUsageSource: CodexUsageSource;
@@ -62,7 +65,7 @@ export type IpcError = { code: IpcErrorCode; message: string };
 
 export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: IpcError };
 
-export type SnapshotUpdatedHandler = (snapshot: UsageSnapshot | null) => void;
+export type SnapshotUpdatedHandler = (snapshot: UsageSnapshotBundle | null) => void;
 export type Unsubscribe = () => void;
 
 export type RendererApi = {
@@ -70,6 +73,8 @@ export type RendererApi = {
     getState: () => Promise<SettingsState>;
     save: (payload: SaveSettingsPayload) => Promise<IpcResult<null>>;
     forgetKey: () => Promise<IpcResult<null>>;
+    forgetClaudeKey: () => Promise<IpcResult<null>>;
+    forgetCodexCookie: () => Promise<IpcResult<null>>;
     refreshNow: () => Promise<IpcResult<null>>;
     onSnapshotUpdated: (handler: SnapshotUpdatedHandler) => Unsubscribe;
   };

@@ -12,13 +12,6 @@ pub enum UsageStatus {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum UsageProvider {
-    Claude,
-    Codex,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
 pub enum UsageSource {
     Web,
     Cli,
@@ -31,6 +24,13 @@ pub enum CodexUsageSource {
     Oauth,
     Web,
     Cli,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSnapshotBundle {
+    pub claude: Option<ClaudeUsageSnapshot>,
+    pub codex: Option<CodexUsageSnapshot>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,42 +200,6 @@ impl CodexUsageSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "provider", rename_all = "snake_case")]
-pub enum UsageSnapshot {
-    Claude {
-        #[serde(flatten)]
-        snapshot: ClaudeUsageSnapshot,
-    },
-    Codex {
-        #[serde(flatten)]
-        snapshot: CodexUsageSnapshot,
-    },
-}
-
-impl UsageSnapshot {
-    pub fn provider(&self) -> UsageProvider {
-        match self {
-            Self::Claude { .. } => UsageProvider::Claude,
-            Self::Codex { .. } => UsageProvider::Codex,
-        }
-    }
-
-    pub fn status(&self) -> UsageStatus {
-        match self {
-            Self::Claude { snapshot } => snapshot.status(),
-            Self::Codex { snapshot } => snapshot.status(),
-        }
-    }
-
-    pub fn last_updated_at(&self) -> &str {
-        match self {
-            Self::Claude { snapshot } => snapshot.last_updated_at(),
-            Self::Codex { snapshot } => snapshot.last_updated_at(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClaudeOrganization {
     pub id: String,
     pub name: Option<String>,
@@ -273,7 +237,8 @@ impl<T> IpcResult<T> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsState {
-    pub provider: UsageProvider,
+    pub track_claude_enabled: bool,
+    pub track_codex_enabled: bool,
     pub usage_source: UsageSource,
     pub remember_session_key: bool,
     pub codex_usage_source: CodexUsageSource,
@@ -284,14 +249,15 @@ pub struct SettingsState {
     pub check_updates_on_startup: bool,
     pub organizations: Vec<ClaudeOrganization>,
     pub selected_organization_id: Option<String>,
-    pub latest_snapshot: Option<UsageSnapshot>,
+    pub latest_snapshot: Option<UsageSnapshotBundle>,
     pub keyring_available: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveSettingsPayload {
-    pub provider: UsageProvider,
+    pub track_claude_enabled: bool,
+    pub track_codex_enabled: bool,
     pub usage_source: UsageSource,
     pub session_key: Option<String>,
     pub remember_session_key: bool,
