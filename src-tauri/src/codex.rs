@@ -368,7 +368,9 @@ impl CodexRpcClient {
         const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
         if let Some(session) = state.session.as_ref() {
             if session.last_used.elapsed() > IDLE_TIMEOUT {
-                state.session = None;
+                if let Some(session) = state.session.take() {
+                    session.shutdown();
+                }
             }
         }
 
@@ -385,8 +387,8 @@ impl CodexRpcClient {
             Ok(value) => Ok(value),
             Err(err) => {
                 // Drop the session and back off to avoid repeated spawns/timeouts.
-                if let Some(mut session) = state.session.take() {
-                    session.start_kill();
+                if let Some(session) = state.session.take() {
+                    session.shutdown();
                 }
                 state.backoff_until = Some(Instant::now() + backoff_for_error(&err));
                 Err(err)
@@ -449,8 +451,12 @@ impl CodexRpcSession {
         Ok(session)
     }
 
-    fn start_kill(&mut self) {
+    fn shutdown(mut self) {
         let _ = self.child.start_kill();
+        let mut child = self.child;
+        tauri::async_runtime::spawn(async move {
+            let _ = child.wait().await;
+        });
     }
 
     async fn read_rate_limits(&mut self) -> Result<(CodexWindow, CodexWindow), CodexCliError> {
