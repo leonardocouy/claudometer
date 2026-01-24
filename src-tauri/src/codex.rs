@@ -562,9 +562,7 @@ impl CodexRpcSession {
                         Ok(v) => v.map_err(|_| CodexCliError::Malformed)?,
                         Err(_) => return Err(CodexCliError::TimedOut),
                     };
-                    if let Some(line) = line {
-                        let _ = redact_secrets(&line);
-                    }
+                    let _ = line;
                 }
             }
         }

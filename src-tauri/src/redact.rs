@@ -58,11 +58,38 @@ pub fn redact_session_key(input: &str) -> Cow<'_, str> {
     }
 }
 
+fn find_ascii_case_insensitive(haystack: &str, needle: &str) -> Option<usize> {
+    let hay = haystack.as_bytes();
+    let nee = needle.as_bytes();
+    if nee.is_empty() {
+        return Some(0);
+    }
+    if nee.len() > hay.len() {
+        return None;
+    }
+
+    for i in 0..=hay.len() - nee.len() {
+        let mut matches = true;
+        for j in 0..nee.len() {
+            let a = hay[i + j].to_ascii_lowercase();
+            let b = nee[j].to_ascii_lowercase();
+            if a != b {
+                matches = false;
+                break;
+            }
+        }
+        if matches {
+            return Some(i);
+        }
+    }
+    None
+}
+
 fn redact_header_value(text: String, header: &str, replacement: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text.as_str();
     loop {
-        let Some(idx) = rest.to_ascii_lowercase().find(&header.to_ascii_lowercase()) else {
+        let Some(idx) = find_ascii_case_insensitive(rest, header) else {
             out.push_str(rest);
             break;
         };
@@ -115,5 +142,27 @@ pub fn redact_secrets(input: &str) -> Cow<'_, str> {
         Cow::Borrowed(input)
     } else {
         Cow::Owned(value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redact_secrets_redacts_cookie_header_line() {
+        let input = "Cookie: sessionKey=abc123;\nOther: ok\n";
+        let out = redact_secrets(input).to_string();
+        assert!(out.contains("Cookie: REDACTED\n"));
+        assert!(out.contains("Other: ok\n"));
+        assert!(!out.contains("abc123"));
+    }
+
+    #[test]
+    fn redact_secrets_redacts_bearer_header_line() {
+        let input = "Authorization: Bearer sk-live-xyz\n";
+        let out = redact_secrets(input).to_string();
+        assert_eq!(out, "Authorization: Bearer REDACTED\n");
+        assert!(!out.contains("sk-live-xyz"));
     }
 }
