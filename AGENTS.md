@@ -29,13 +29,19 @@ Fight entropy. Leave the codebase better than you found it.
 
 ## Project Overview
 
-**Claudometer** is a tray-first desktop application for **macOS + Linux** that shows Claude usage limits in near real time.
+**Claudometer** is a tray-first desktop application for **macOS + Linux** that shows **Claude** and **Codex** usage limits in near real time.
 
-The MVP tracks Claude usage via **two authentication modes**:
+The app can track usage from two providers:
+- **Claude** (Anthropic): web cookie (`sessionKey`) or Claude Code CLI OAuth credentials.
+- **Codex** (OpenAI): local Codex OAuth credentials or Codex CLI.
+
+### Claude
+
+Claude supports two authentication modes:
 - **Web mode**: Claude.ai web session cookie (`sessionKey`)
 - **CLI mode**: Claude Code CLI OAuth credentials (local Claude Code session)
 
-Both modes track the same metrics:
+Both Claude modes track the same metrics:
 - 5-hour session utilization (`five_hour`)
 - weekly utilization (`seven_day`)
 - model-specific weekly utilization (`seven_day_*`, prefers `seven_day_sonnet`, then `seven_day_opus`)
@@ -43,6 +49,12 @@ Both modes track the same metrics:
 **Web mode** authenticates via Claude web session cookie, sent as `Cookie: sessionKey=...` to `https://claude.ai/api/*`.
 
 **CLI mode** authenticates via OAuth Bearer token, sent to `https://api.anthropic.com/api/oauth/*`.
+
+### Codex
+
+Codex supports two sources:
+- **OAuth mode**: reads local Codex credentials (e.g. `~/.codex/auth.json` or `$CODEX_HOME/auth.json`) and calls HTTPS usage endpoints.
+- **CLI mode**: shells out to the local `codex` binary.
 
 ## Tech Stack (Target)
 
@@ -53,7 +65,7 @@ Both modes track the same metrics:
 | Settings | `tauri-plugin-store` (non-sensitive) |
 | Secrets | OS Keychain/Secret Service via `keyring` (session key) |
 | Formatting/Lint | Biome |
-| Tests | Lightweight unit tests for parsing (framework TBD; prefer minimal) |
+| Tests | Rust unit tests for parsing/formatting (keep minimal) |
 
 ## Repository Structure (Target)
 
@@ -81,4 +93,5 @@ This repo uses OpenSpec for planning/requirements:
 
 - Never log or persist the Claude `sessionKey` outside OS credential storage.
 - Never include the session key in error messages, UI text, or telemetry.
+- Never log, display, or persist OAuth tokens (Claude or Codex).
 - Assume Claude web endpoints can change; handle errors and unauthorized states gracefully.

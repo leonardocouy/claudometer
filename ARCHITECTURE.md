@@ -1,6 +1,6 @@
 # Architecture Documentation
 
-Claudometer is a tray-first **macOS + Linux** desktop application that monitors Claude usage limits (not Anthropic Console billing). It is built with **Tauri v2**: a Rust backend that owns lifecycle + polling, and a small Vite-rendered settings window UI.
+Claudometer is a tray-first **macOS + Linux** desktop application that monitors **Claude** and **Codex** usage limits (not Anthropic Console billing). It is built with **Tauri v2**: a Rust backend that owns lifecycle + polling, and a small Vite-rendered settings window UI.
 
 ## Table of Contents
 
@@ -17,7 +17,7 @@ Claudometer is a tray-first **macOS + Linux** desktop application that monitors 
 Design principles:
 1. **Tray-first**: no window at startup; settings window is opened on demand.
 2. **Single polling loop**: a single-flight refresh loop with backoff.
-3. **Safe by default**: session keys are never logged and never persisted outside OS credential storage.
+3. **Safe by default**: secrets/tokens are never logged and never persisted outside OS credential storage.
 
 Tech choices:
 - **Rust backend**: tray + polling + secure storage + updater.
@@ -29,9 +29,13 @@ Tech choices:
 ┌─────────────────────────────────────────────────────────────────┐
 │ Tauri Backend (src-tauri/src)                                   │
 │  • app.rs: Tauri builder + plugin wiring                         │
-│  • tray.rs: tray icon + menu rendering                            │
-│  • claude.rs: web + oauth usage clients + parsing/normalization   │
-│  • commands.rs: invoke commands + polling loop + snapshot events  │
+│  • tray/: tray icon + menu rendering                              │
+│  • refresh/: refresh loop + backoff + fetch bundle                │
+│  • state/: shared state (settings, caches, secrets)               │
+│  • claude.rs: Claude web + oauth usage clients + parsing           │
+│  • codex.rs: Codex oauth + CLI usage clients + parsing             │
+│  • commands/: invoke commands (settings, updates)                  │
+│  • notifications.rs: wiring for near-limit/reset notifications      │
 │  • settings.rs: tauri-plugin-store persistence (non-sensitive)    │
 │  • usage_alerts.rs: near-limit + reset notification decisions     │
 │  • updater.rs: tauri-plugin-updater integration                   │
@@ -47,13 +51,16 @@ Tech choices:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## Dual Authentication Modes
+## Providers and Authentication
 
-Claudometer supports two authentication modes that share the same `ClaudeUsageSnapshot` type but use different APIs. On first launch, it defaults to Claude Code when a local Claude Code session is available; otherwise it falls back to Claude Web.
+Claudometer can track either (or both) providers:
+- **Claude (Anthropic)** usage (session + weekly + model weekly)
+- **Codex (OpenAI)** usage (session + weekly)
 
-### Web Mode
+Snapshots are combined into a single `UsageSnapshotBundle` and emitted to the UI via the `snapshot:updated` event.
 
-**Architecture:**
+### Claude: Web Mode
+
 - Uses Claude.ai web session cookie (`sessionKey`)
 - Fetches from `https://claude.ai/api/*` endpoints
 - Supports multiple organizations
@@ -69,7 +76,7 @@ Claudometer supports two authentication modes that share the same `ClaudeUsageSn
 - If “Remember session key” is enabled: stored in OS credential storage via Rust `keyring`
 - Otherwise: kept in-memory only for the current app session
 
-### CLI Mode (OAuth)
+### Claude: CLI Mode (OAuth)
 
 **Architecture:**
 - Uses OAuth tokens from Claude Code
@@ -85,30 +92,16 @@ Claudometer supports two authentication modes that share the same `ClaudeUsageSn
 
 **Credential Location:** Managed locally by Claude Code (not stored by Claudometer).
 
-**Key Differences:**
+### Codex: OAuth Mode
 
-| Aspect | Web Mode | CLI Mode |
-|--------|----------|----------|
-| **Setup** | Manual cookie extraction | One-time `claude` auth |
-| **Token Management** | Manual refresh needed | Auto-refresh by CLI |
-| **API Endpoint** | `claude.ai/api/*` | `api.anthropic.com/api/oauth/*` |
-| **Organizations** | Multi-org support | Single account |
-| **Persistence** | OS credential storage (`keyring`) or memory-only | Claude Code manages locally |
-| **Credential Format** | Session cookie string | OAuth access/refresh tokens |
+- Reads local Codex credentials (e.g. `~/.codex/auth.json` or `$CODEX_HOME/auth.json`).
+- Calls Codex usage endpoints over HTTPS with `Authorization: Bearer ...`.
+- May include `chatgpt-account-id` when present in local credentials.
 
-### Routing Logic
+### Codex: CLI Mode
 
-The Rust backend routes to the correct fetcher based on the `usageSource` setting:
-
-```rust
-if usage_source == UsageSource::Cli {
-  fetch_oauth_usage_snapshot()
-} else {
-  fetch_claude_web_usage_snapshot(org_id)
-}
-```
-
-Both services return the same `ClaudeUsageSnapshot` type, making them fully interchangeable from the UI perspective.
+- Shells out to the local `codex` binary and parses structured output.
+- No credentials are stored by Claudometer in this mode.
 
 ## Data Flow
 
@@ -122,18 +115,21 @@ Both services return the same `ClaudeUsageSnapshot` type, making them fully inte
 ### Polling
 
 On each refresh:
-1. Resolve the active usage source (`web` or `cli`).
-2. Web mode:
+1. Read current settings (enabled providers + sources).
+2. Claude web mode (when enabled):
    - Resolve session key (in-memory always wins; if “Remember” is enabled, load from OS keychain/Secret Service)
    - Fetch organizations (`GET /api/organizations`) and resolve org ID
    - Fetch usage snapshot (`GET /api/organizations/:id/usage`) and normalize
-3. CLI mode:
+3. Claude CLI mode (when enabled):
    - Read OAuth credentials from the local Claude Code session
    - Fetch usage snapshot (`GET https://api.anthropic.com/api/oauth/usage`) and normalize
-4. Update tray menu text and emit `snapshot:updated` for settings UI.
+4. Codex (when enabled):
+   - OAuth mode: read local auth + fetch usage snapshot over HTTPS
+   - CLI mode: execute `codex` and parse usage
+5. Bundle snapshots and update tray menu, then emit `snapshot:updated` for settings UI.
 
 Special behavior:
-- **Unauthorized** (`401/403`) and **MissingKey**: polling pauses until the user updates settings.
+- **Unauthorized** (`401/403`) and **MissingKey**: polling pauses only when *all enabled* providers are blocked (so the other provider can continue updating).
 - **Rate limited** (`429`): polling backs off with jitter.
 
 ## State Management
@@ -159,14 +155,14 @@ If OS credential storage is unavailable, “Remember session key” is disabled 
 
 ## Date/Time Handling
 
-Tray menu timestamps are handled as RFC3339 strings and formatted in `src-tauri/src/tray.rs`:
+Tray menu timestamps are handled as RFC3339 strings and formatted in `src-tauri/src/tray/formatters.rs`:
 - Converted to the system local time zone via `chrono::Local` (uses OS TZ/DST rules).
 - Formatted with `chrono` `unstable-locales` using a `Locale` derived from `LC_TIME` → `LC_ALL` → `LANG`.
 - If parsing fails, the raw input string is displayed as a fallback.
 
 ## API Integration
 
-Claudometer can use either Claude’s **web** endpoints (the same interface the website uses) or the Claude Code OAuth usage endpoint.
+Claudometer can use Claude’s **web** endpoints (the same interface the website uses), the Claude Code OAuth usage endpoint, and Codex usage endpoints.
 
 Authentication:
 
@@ -184,6 +180,8 @@ Endpoints:
 - `GET https://claude.ai/api/organizations`
 - `GET https://claude.ai/api/organizations/:id/usage`
 - `GET https://api.anthropic.com/api/oauth/usage`
+- `GET https://chatgpt.com/backend-api/wham/usage` (Codex, primary)
+- `GET https://chatgpt.com/api/codex/usage` (Codex, fallback)
 
 Tracked fields (MVP):
 - `five_hour` utilization
@@ -195,7 +193,7 @@ Tracked fields (MVP):
 Rules:
 - Never log or display the `sessionKey`.
 - Never persist the `sessionKey` outside OS credential storage.
-- Never log, display, or persist OAuth tokens.
+- Never log, display, or persist OAuth tokens (Claude or Codex).
 - Redact any accidental `sessionKey=` occurrences from error strings.
 
 The settings UI only accepts the session key via a password input and clears it after save.
