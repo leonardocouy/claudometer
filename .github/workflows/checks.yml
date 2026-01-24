@@ -55,6 +55,9 @@ jobs:
             pkg-config \
             build-essential
 
+      - name: IPC types drift check
+        run: bun run check:ipc-types
+
       - name: TypeScript typecheck
         run: bun run typecheck
 

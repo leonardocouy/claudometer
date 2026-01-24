@@ -15,6 +15,8 @@
     "release:major": "./scripts/release.sh major",
     "sync-versions": "bun run scripts/sync-versions.ts",
     "sync-versions:check": "bun run scripts/sync-versions.ts --check",
+    "generate:ipc-types": "cargo run --manifest-path src-tauri/Cargo.toml --bin generate_ipc_types && bunx biome format --write src/common/generated/ipc-types.ts",
+    "check:ipc-types": "bun run generate:ipc-types && git diff --exit-code -- src/common/generated/ipc-types.ts",
     "typecheck": "tsc --noEmit",
     "check": "biome check .",
     "lint": "biome lint --write",

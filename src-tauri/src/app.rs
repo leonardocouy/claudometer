@@ -1,7 +1,11 @@
 use crate::claude::ClaudeApiClient;
 use crate::codex::CodexApiClient;
-use crate::commands::{self, AppState, RefreshBus, SecretManager};
+use crate::commands;
+use crate::refresh;
 use crate::settings::SettingsStore;
+use crate::state::{
+    AppState, DebugOverride, RefreshBus, SecretManager, KEYRING_USER_CLAUDE_SESSION_KEY,
+};
 use crate::tray::{self, TrayUi};
 use std::collections::HashMap;
 use tauri::Manager;
@@ -173,7 +177,7 @@ pub fn run() {
 
             let state = AppState {
                 settings: settings.clone(),
-                claude_session_key: SecretManager::new(commands::KEYRING_USER_CLAUDE_SESSION_KEY),
+                claude_session_key: SecretManager::new(KEYRING_USER_CLAUDE_SESSION_KEY),
                 claude: std::sync::Arc::new(claude),
                 codex: std::sync::Arc::new(codex),
                 organizations: std::sync::Arc::new(tokio::sync::Mutex::new(vec![])),
@@ -181,7 +185,7 @@ pub fn run() {
                 latest_snapshot: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
                 reset_baseline_by_org: std::sync::Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 debug_override: std::sync::Arc::new(tokio::sync::Mutex::new(
-                    crate::commands::DebugOverride::default(),
+                    DebugOverride::default(),
                 )),
                 tray: tray.clone(),
                 refresh: refresh.clone(),
@@ -192,7 +196,7 @@ pub fn run() {
                 state.track_codex_enabled(),
                 None,
             );
-            commands::spawn_refresh_loop(app_handle.clone(), state.clone(), rx);
+            refresh::spawn_refresh_loop(app_handle.clone(), state.clone(), rx);
 
             if settings.get_bool(crate::settings::KEY_CHECK_UPDATES_ON_STARTUP, true) {
                 crate::updater::check_for_updates_background(app_handle.clone());
