@@ -1,10 +1,16 @@
-import type { ClaudeOrganization, ClaudeUsageSnapshot, UsageSource } from './types.ts';
+import type {
+  IpcResult,
+  SaveSettingsPayload,
+  SettingsState,
+  UsageSnapshotBundle,
+} from './generated/ipc-types.ts';
 
 export const ipcChannels = {
   settings: {
     getState: 'settings:getState',
     save: 'settings:save',
     forgetKey: 'settings:forgetKey',
+    forgetClaudeKey: 'settings:forgetClaudeKey',
     refreshNow: 'settings:refreshNow',
   },
   events: {
@@ -12,44 +18,7 @@ export const ipcChannels = {
   },
 } as const;
 
-export type SettingsState = {
-  usageSource: UsageSource;
-  rememberSessionKey: boolean;
-  refreshIntervalSeconds: number;
-  notifyOnUsageReset: boolean;
-  autostartEnabled: boolean;
-  checkUpdatesOnStartup: boolean;
-  organizations: ClaudeOrganization[];
-  selectedOrganizationId?: string;
-  latestSnapshot: ClaudeUsageSnapshot | null;
-  keyringAvailable: boolean;
-};
-
-export type SaveSettingsPayload = {
-  sessionKey?: string;
-  rememberSessionKey: boolean;
-  refreshIntervalSeconds: number;
-  notifyOnUsageReset: boolean;
-  autostartEnabled: boolean;
-  checkUpdatesOnStartup: boolean;
-  selectedOrganizationId?: string;
-  usageSource: UsageSource;
-};
-
-export type IpcErrorCode =
-  | 'VALIDATION'
-  | 'NETWORK'
-  | 'UNAUTHORIZED'
-  | 'RATE_LIMITED'
-  | 'KEYRING'
-  | 'UPDATER'
-  | 'UNKNOWN';
-
-export type IpcError = { code: IpcErrorCode; message: string };
-
-export type IpcResult<T> = { ok: true; value: T } | { ok: false; error: IpcError };
-
-export type SnapshotUpdatedHandler = (snapshot: ClaudeUsageSnapshot | null) => void;
+export type SnapshotUpdatedHandler = (snapshot: UsageSnapshotBundle | null) => void;
 export type Unsubscribe = () => void;
 
 export type RendererApi = {
@@ -57,6 +26,7 @@ export type RendererApi = {
     getState: () => Promise<SettingsState>;
     save: (payload: SaveSettingsPayload) => Promise<IpcResult<null>>;
     forgetKey: () => Promise<IpcResult<null>>;
+    forgetClaudeKey: () => Promise<IpcResult<null>>;
     refreshNow: () => Promise<IpcResult<null>>;
     onSnapshotUpdated: (handler: SnapshotUpdatedHandler) => Unsubscribe;
   };

@@ -1,6 +1,6 @@
 # Claudometer
 
-A tray-first desktop application for **macOS** and **Linux** that shows your Claude usage limits in near real-time.
+A tray-first desktop application for **macOS** and **Linux** that shows your **Claude** and **Codex** usage limits in near real-time.
 
 <p align="center">
   <img src="assets/screenshot-tray-mac.png" alt="Claudometer Tray Menu" height="300"/>
@@ -9,13 +9,13 @@ A tray-first desktop application for **macOS** and **Linux** that shows your Cla
 
 ## Features
 
-- **Real-time usage tracking** - Monitor your 5-hour session and weekly Claude usage limits
-- **Dual authentication modes**:
-  - **Claude Code** (recommended) - Uses your existing Claude Code OAuth login
-  - **Claude Web** - Uses your claude.ai session cookie
+- **Real-time usage tracking** - Monitor your 5-hour session and weekly limits (Claude + Codex)
+- **Provider + auth options**:
+  - **Claude**: **Claude Code** (OAuth) or **Claude Web** (`sessionKey` cookie)
+  - **Codex**: **Codex OAuth** (local login) or **Codex CLI**
 - **System tray integration** - Always visible in your menu bar, stays out of your way
 - **Near-limit alerts** - Get notified when approaching usage limits (≥90%)
-- **Secure credential storage** - Session keys stored in OS Keychain (macOS) or Secret Service (Linux)
+- **Secure credential storage** - Claude session keys stored in OS Keychain (macOS) or Secret Service (Linux)
 - **Auto-updates** - Stay up to date with signed automatic updates
 - **Multi-organization support** - Switch between Claude organizations seamlessly (Claude Web only)
 
@@ -45,9 +45,13 @@ If you prefer to build from source, see the [Development](#development) section 
 
 1. **Launch Claudometer** - The app starts minimized in your system tray
 2. **Open Settings** - Click the tray icon → "Open Settings..."
-3. **Choose your usage source**:
-   - **Claude Code** (recommended): If you use [Claude Code](https://docs.anthropic.com/en/docs/agent-code), just run `claude login` once and Claudometer will use those credentials
-   - **Claude Web**: Paste your `sessionKey` cookie from claude.ai
+3. **Choose what to track**:
+   - **Claude** (optional):
+     - **Claude Code** (recommended): run `claude login` once and Claudometer will use those credentials
+     - **Claude Web**: paste your `sessionKey` cookie from claude.ai
+   - **Codex** (optional):
+     - **Codex OAuth** (recommended): log in with `codex` and Claudometer will read your local credentials
+     - **Codex CLI**: uses the local `codex` binary
 4. **Save** - Your usage stats will appear in the tray menu
 
 ## Project Structure
@@ -61,6 +65,7 @@ claudometer/
 ├── src/
 │   ├── renderer/settings/         # Vite settings UI (Tauri invoke + events)
 │   └── common/                    # Shared types for the settings UI
+│       └── generated/             # Generated IPC types (from Rust)
 ├── assets/                        # Tray icons
 ├── package.json
 ├── tsconfig.json
@@ -88,17 +93,19 @@ claudometer/
              ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ Polling Loop                                                │
-│ 1. Resolve usage source (web/cli)                           │
-│ 2. Fetch usage snapshot                                     │
-│ 3. Parse JSON response                                      │
-│ 4. Update tray menu                                         │
+│ 1. Read settings (enabled providers + sources)              │
+│ 2. Fetch provider snapshots (Claude + Codex)                │
+│ 3. Normalize/parse responses                                │
+│ 4. Update tray menu + emit snapshot event                   │
 └────────────┬────────────────────────────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ Usage Provider                                              │
-│ • Web: claude.ai/api (Cookie sessionKey=...)                │
-│ • CLI: api.anthropic.com/api/oauth/usage (Bearer token)     │
+│ • Claude Web: claude.ai/api (Cookie sessionKey=...)         │
+│ • Claude OAuth: api.anthropic.com/api/oauth/usage           │
+│ • Codex OAuth: chatgpt.com/* (Bearer token)                 │
+│ • Codex CLI: local codex binary                             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -107,7 +114,7 @@ claudometer/
 1. **App starts** → Loads settings (including usage source)
 2. **Every N seconds** → Polls usage data for the selected source
 3. **On response** → Parses JSON and updates tray menu text
-4. **On error** → Updates tray to show error state, stops polling if unauthorized (401/403)
+4. **On error** → Updates tray to show error state; polling only pauses when *all enabled* providers are blocked (missing key / unauthorized)
 
 ### Debug (simulate notifications)
 
@@ -173,6 +180,8 @@ bun run build
 | `bun run check` | Run Biome linter and formatter checks |
 | `bun run lint` | Auto-fix linting issues |
 | `bun run format` | Auto-format code |
+| `bun run generate:ipc-types` | Generate `src/common/generated/ipc-types.ts` from Rust |
+| `bun run check:ipc-types` | Fail CI if IPC types drift |
 
 ### Tech Stack
 
@@ -185,7 +194,7 @@ bun run build
 | Settings Storage | `tauri-plugin-store` (non-sensitive data) |
 | Secret Storage | OS Keychain / Secret Service (`keyring` crate) |
 | Linting/Formatting | Biome |
-| Testing | Bun's built-in test runner |
+| Testing | Rust unit tests (`cargo test --manifest-path src-tauri/Cargo.toml`) |
 
 ## Manual Test Matrix
 
@@ -203,11 +212,14 @@ Checklist:
 7. Notifications: near-limit alerts (>= 90%) and reset notifications (when enabled).
 8. Autostart toggle reflects system state after restart/login.
 9. “Check for Updates…” shows a result (up-to-date / update available / error).
+10. Codex OAuth: after logging in with `codex`, refresh shows Codex usage in tray.
+11. Codex CLI: with `codex` installed, refresh shows Codex usage in tray.
 
 ## Security & Privacy
 
 ### Authentication Handling
 
+**Claude Web session key (`sessionKey`):**
 - **Stored only in OS credential storage** when “Remember” is enabled (Keychain / Secret Service)
 - **Memory-only** when “Remember” is disabled (no persistence)
 - **Never logged**: Session key is never included in logs, error messages, or telemetry
@@ -235,12 +247,19 @@ Checklist:
   - `GET /api/oauth/usage` - Fetch usage stats
 - OAuth token sent as Bearer header
 
+**Codex:**
+- HTTPS requests to `chatgpt.com` usage endpoints (OAuth mode)
+- Authorization sent as Bearer header (and optional `chatgpt-account-id` header)
+
+Claudometer does not persist Codex tokens; it reads local credentials when needed.
+
 ### Local Storage
 
 The app stores these settings locally (non-sensitive) via `tauri-plugin-store`:
 - Refresh interval (seconds)
 - Selected organization ID
 - "Remember session key" preference
+- Provider toggles + sources (Claude/Codex)
 - Autostart preference
 - Updater preferences
 
@@ -269,7 +288,7 @@ Claude API is rate-limiting your requests:
 - The app automatically backs off for 5 minutes
 - Consider increasing your refresh interval in Settings
 
-### App won't start on Linux
+### Session key doesn't persist across restarts (Linux)
 
 If “Remember session key” is disabled in Settings, your session key will not persist across restarts.
 
@@ -286,6 +305,14 @@ Check the tray menu:
 - **Unauthorized**: Session key/token expired (see above)
 - **Rate limited**: Auto-recovers in 5 minutes
 - **Error**: Check the error message in the tray menu
+
+If you have both providers enabled, polling only pauses when *all enabled* providers are blocked (missing key / unauthorized).
+
+### Codex not working
+
+If Codex shows "unauthorized":
+- **Codex OAuth**: log in again via `codex`, then click “Refresh now”.
+- **Codex CLI**: ensure `codex` is installed and available on your `PATH`.
 
 ### CLI mode not working
 
@@ -313,7 +340,7 @@ claude login
 ## Roadmap
 
 - [ ] Windows support
-- [ ] Desktop notifications when approaching usage limits
+- [x] Desktop notifications when approaching usage limits
 - [ ] Historical usage graphs
 - [ ] Menu bar percentage display
 - [x] Auto-update mechanism

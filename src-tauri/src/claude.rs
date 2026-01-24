@@ -1,4 +1,4 @@
-use crate::redact::redact_session_key;
+use crate::redact::redact_secrets;
 use crate::types::{ClaudeModelUsage, ClaudeOrganization, ClaudeUsageSnapshot};
 use reqwest::header::{
     HeaderMap, HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, COOKIE, ORIGIN, REFERER, USER_AGENT,
@@ -284,7 +284,7 @@ impl ClaudeApiClient {
         let res = match res {
             Ok(r) => r,
             Err(e) => {
-                let msg = redact_session_key(&e.to_string()).to_string();
+                let msg = redact_secrets(&e.to_string()).to_string();
                 return ClaudeUsageSnapshot::Error {
                     organization_id: Some(organization_id.to_string()),
                     last_updated_at,
@@ -319,7 +319,7 @@ impl ClaudeApiClient {
         let text = match text {
             Ok(t) => t,
             Err(e) => {
-                let msg = redact_session_key(&e.to_string()).to_string();
+                let msg = redact_secrets(&e.to_string()).to_string();
                 return ClaudeUsageSnapshot::Error {
                     organization_id: Some(organization_id.to_string()),
                     last_updated_at,
@@ -333,7 +333,7 @@ impl ClaudeApiClient {
             Err(e) => ClaudeUsageSnapshot::Error {
                 organization_id: Some(organization_id.to_string()),
                 last_updated_at,
-                error_message: Some(redact_session_key(&e.to_string()).to_string()),
+                error_message: Some(redact_secrets(&e.to_string()).to_string()),
             },
         }
     }

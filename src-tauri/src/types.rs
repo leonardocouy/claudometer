@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageStatus {
     Ok,
@@ -10,14 +11,28 @@ pub enum UsageStatus {
     MissingKey,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum UsageSource {
     Web,
     Cli,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexUsageSource {
+    Oauth,
+    Cli,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageSnapshotBundle {
+    pub claude: Option<ClaudeUsageSnapshot>,
+    pub codex: Option<CodexUsageSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeModelUsage {
     pub name: String,
@@ -25,7 +40,7 @@ pub struct ClaudeModelUsage {
     pub resets_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ClaudeUsageSnapshot {
     Ok {
@@ -110,19 +125,104 @@ impl ClaudeUsageSnapshot {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum CodexUsageSnapshot {
+    Ok {
+        #[serde(rename = "sessionPercent")]
+        session_percent: f64,
+        #[serde(rename = "sessionResetsAt")]
+        session_resets_at: Option<String>,
+        #[serde(rename = "weeklyPercent")]
+        weekly_percent: f64,
+        #[serde(rename = "weeklyResetsAt")]
+        weekly_resets_at: Option<String>,
+        #[serde(rename = "lastUpdatedAt")]
+        last_updated_at: String,
+    },
+    Unauthorized {
+        #[serde(rename = "lastUpdatedAt")]
+        last_updated_at: String,
+        #[serde(rename = "errorMessage")]
+        error_message: Option<String>,
+    },
+    RateLimited {
+        #[serde(rename = "lastUpdatedAt")]
+        last_updated_at: String,
+        #[serde(rename = "errorMessage")]
+        error_message: Option<String>,
+    },
+    Error {
+        #[serde(rename = "lastUpdatedAt")]
+        last_updated_at: String,
+        #[serde(rename = "errorMessage")]
+        error_message: Option<String>,
+    },
+    MissingKey {
+        #[serde(rename = "lastUpdatedAt")]
+        last_updated_at: String,
+        #[serde(rename = "errorMessage")]
+        error_message: Option<String>,
+    },
+}
+
+impl CodexUsageSnapshot {
+    pub fn status(&self) -> UsageStatus {
+        match self {
+            Self::Ok { .. } => UsageStatus::Ok,
+            Self::Unauthorized { .. } => UsageStatus::Unauthorized,
+            Self::RateLimited { .. } => UsageStatus::RateLimited,
+            Self::Error { .. } => UsageStatus::Error,
+            Self::MissingKey { .. } => UsageStatus::MissingKey,
+        }
+    }
+
+    pub fn last_updated_at(&self) -> &str {
+        match self {
+            Self::Ok {
+                last_updated_at, ..
+            } => last_updated_at,
+            Self::Unauthorized {
+                last_updated_at, ..
+            } => last_updated_at,
+            Self::RateLimited {
+                last_updated_at, ..
+            } => last_updated_at,
+            Self::Error {
+                last_updated_at, ..
+            } => last_updated_at,
+            Self::MissingKey {
+                last_updated_at, ..
+            } => last_updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct ClaudeOrganization {
     pub id: String,
     pub name: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum IpcErrorCode {
+    Validation,
+    Network,
+    Unauthorized,
+    RateLimited,
+    Keyring,
+    Updater,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 pub struct IpcError {
-    pub code: String,
+    pub code: IpcErrorCode,
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(untagged)]
 pub enum IpcResult<T> {
     Ok { ok: bool, value: T },
@@ -134,39 +234,45 @@ impl<T> IpcResult<T> {
         Self::Ok { ok: true, value }
     }
 
-    pub fn err(code: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn err(code: IpcErrorCode, message: impl Into<String>) -> Self {
         Self::Err {
             ok: false,
             error: IpcError {
-                code: code.into(),
+                code,
                 message: message.into(),
             },
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsState {
+    pub track_claude_enabled: bool,
+    pub track_codex_enabled: bool,
     pub usage_source: UsageSource,
     pub remember_session_key: bool,
-    pub refresh_interval_seconds: u64,
+    pub codex_usage_source: CodexUsageSource,
+    pub refresh_interval_seconds: u32,
     pub notify_on_usage_reset: bool,
     pub autostart_enabled: bool,
     pub check_updates_on_startup: bool,
     pub organizations: Vec<ClaudeOrganization>,
     pub selected_organization_id: Option<String>,
-    pub latest_snapshot: Option<ClaudeUsageSnapshot>,
+    pub latest_snapshot: Option<UsageSnapshotBundle>,
     pub keyring_available: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveSettingsPayload {
+    pub track_claude_enabled: bool,
+    pub track_codex_enabled: bool,
     pub usage_source: UsageSource,
     pub session_key: Option<String>,
     pub remember_session_key: bool,
-    pub refresh_interval_seconds: u64,
+    pub codex_usage_source: CodexUsageSource,
+    pub refresh_interval_seconds: u32,
     pub notify_on_usage_reset: bool,
     pub autostart_enabled: bool,
     pub check_updates_on_startup: bool,

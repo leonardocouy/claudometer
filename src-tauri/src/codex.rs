@@ -1,0 +1,609 @@
+use crate::redact::redact_secrets;
+use crate::types::CodexUsageSnapshot;
+use reqwest::header::{
+    HeaderMap, HeaderName, HeaderValue, ACCEPT, AUTHORIZATION, ORIGIN, REFERER, USER_AGENT,
+};
+use serde::Deserialize;
+use serde_json::Value;
+use std::path::PathBuf;
+use std::process::Stdio;
+use thiserror::Error;
+use time::OffsetDateTime;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::Command;
+use tokio::sync::Mutex;
+use tokio::time::{Duration, Instant};
+
+const USAGE_URL_PRIMARY: &str = "https://chatgpt.com/backend-api/wham/usage";
+const USAGE_URL_FALLBACK: &str = "https://chatgpt.com/api/codex/usage";
+
+const CODEX_AUTH_RELATIVE_PATH: &str = ".codex/auth.json";
+
+fn now_iso() -> String {
+    OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
+fn clamp_percent(value: f64) -> f64 {
+    if value.is_nan() {
+        return 0.0;
+    }
+    value.clamp(0.0, 100.0)
+}
+
+fn epoch_seconds_to_rfc3339(seconds: i64) -> Option<String> {
+    let dt = OffsetDateTime::from_unix_timestamp(seconds).ok()?;
+    dt.format(&time::format_description::well_known::Rfc3339)
+        .ok()
+}
+
+fn build_common_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static(
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        ),
+    );
+    headers.insert(ORIGIN, HeaderValue::from_static("https://chatgpt.com"));
+    headers.insert(
+        REFERER,
+        HeaderValue::from_static("https://chatgpt.com/codex/settings/usage"),
+    );
+    headers
+}
+
+fn build_oauth_headers(access_token: &str, account_id: Option<&str>) -> HeaderMap {
+    let mut headers = build_common_headers();
+    if let Ok(value) = HeaderValue::from_str(&format!("Bearer {access_token}")) {
+        headers.insert(AUTHORIZATION, value);
+    }
+    if let Some(account_id) = account_id.map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        if let Ok(value) = HeaderValue::from_str(account_id) {
+            headers.insert(HeaderName::from_static("chatgpt-account-id"), value);
+        }
+    }
+    headers
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodexHttpErrorStatus {
+    Unauthorized,
+    RateLimited,
+    Error,
+}
+
+#[derive(Debug, Error)]
+pub enum CodexError {
+    #[error("network error")]
+    Network(#[from] reqwest::Error),
+    #[error("invalid json")]
+    Json(#[from] serde_json::Error),
+}
+
+fn map_http_status(status_code: u16) -> CodexHttpErrorStatus {
+    match status_code {
+        401 | 403 => CodexHttpErrorStatus::Unauthorized,
+        429 => CodexHttpErrorStatus::RateLimited,
+        _ => CodexHttpErrorStatus::Error,
+    }
+}
+
+#[derive(Debug, Error, Clone, Copy)]
+pub enum CodexCredentialsError {
+    #[error("HOME is not set")]
+    HomeMissing,
+    #[error("credentials file not found")]
+    MissingFile,
+    #[error("missing access token")]
+    MissingAccessToken,
+    #[error("invalid json")]
+    InvalidJson,
+}
+
+#[derive(Debug, Clone)]
+pub struct CodexOAuthCredentials {
+    pub access_token: String,
+    pub account_id: Option<String>,
+}
+
+fn auth_file_path() -> Result<PathBuf, CodexCredentialsError> {
+    if let Ok(codex_home) = std::env::var("CODEX_HOME") {
+        let trimmed = codex_home.trim().to_string();
+        if !trimmed.is_empty() {
+            return Ok(PathBuf::from(trimmed).join("auth.json"));
+        }
+    };
+
+    let home = std::env::var("HOME").map_err(|_| CodexCredentialsError::HomeMissing)?;
+    Ok(PathBuf::from(home).join(CODEX_AUTH_RELATIVE_PATH))
+}
+
+pub fn read_codex_oauth_credentials() -> Result<CodexOAuthCredentials, CodexCredentialsError> {
+    let path = auth_file_path()?;
+    if !path.exists() {
+        return Err(CodexCredentialsError::MissingFile);
+    }
+    let data = std::fs::read_to_string(&path).map_err(|_| CodexCredentialsError::MissingFile)?;
+    let json: Value =
+        serde_json::from_str(&data).map_err(|_| CodexCredentialsError::InvalidJson)?;
+
+    let tokens = json.get("tokens").and_then(|v| v.as_object());
+    let access_token = tokens
+        .and_then(|t| t.get("access_token"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or(CodexCredentialsError::MissingAccessToken)?;
+
+    let account_id = tokens
+        .and_then(|t| t.get("account_id"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    Ok(CodexOAuthCredentials {
+        access_token,
+        account_id,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexUsageResponse {
+    #[serde(default)]
+    rate_limit: Option<CodexRateLimit>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexRateLimit {
+    #[serde(default)]
+    primary_window: Option<CodexWindow>,
+    #[serde(default)]
+    secondary_window: Option<CodexWindow>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexWindow {
+    used_percent: i64,
+    reset_at: i64,
+}
+
+fn parse_codex_usage_response(json: Value) -> Option<(CodexWindow, CodexWindow)> {
+    let parsed: CodexUsageResponse = serde_json::from_value(json).ok()?;
+    let rate = parsed.rate_limit?;
+    let primary = rate.primary_window?;
+    let secondary = rate.secondary_window?;
+    Some((primary, secondary))
+}
+
+fn ok_snapshot(primary: CodexWindow, secondary: CodexWindow) -> CodexUsageSnapshot {
+    CodexUsageSnapshot::Ok {
+        session_percent: clamp_percent(primary.used_percent as f64),
+        session_resets_at: epoch_seconds_to_rfc3339(primary.reset_at),
+        weekly_percent: clamp_percent(secondary.used_percent as f64),
+        weekly_resets_at: epoch_seconds_to_rfc3339(secondary.reset_at),
+        last_updated_at: now_iso(),
+    }
+}
+
+fn unauthorized_snapshot(message: &str) -> CodexUsageSnapshot {
+    CodexUsageSnapshot::Unauthorized {
+        last_updated_at: now_iso(),
+        error_message: Some(message.to_string()),
+    }
+}
+
+fn rate_limited_snapshot(message: &str) -> CodexUsageSnapshot {
+    CodexUsageSnapshot::RateLimited {
+        last_updated_at: now_iso(),
+        error_message: Some(message.to_string()),
+    }
+}
+
+fn error_snapshot(message: &str) -> CodexUsageSnapshot {
+    CodexUsageSnapshot::Error {
+        last_updated_at: now_iso(),
+        error_message: Some(message.to_string()),
+    }
+}
+
+pub struct CodexApiClient {
+    http: reqwest::Client,
+    rpc: CodexRpcClient,
+}
+
+impl CodexApiClient {
+    pub fn new() -> Result<Self, CodexError> {
+        Ok(Self {
+            http: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(40))
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .build()?,
+            rpc: CodexRpcClient::new(),
+        })
+    }
+
+    async fn fetch_usage_json(&self, headers: HeaderMap) -> Result<Value, CodexHttpErrorStatus> {
+        async fn attempt(
+            http: &reqwest::Client,
+            url: &'static str,
+            headers: &HeaderMap,
+        ) -> Result<Value, CodexHttpErrorStatus> {
+            let res = http.get(url).headers(headers.clone()).send().await;
+            let res = match res {
+                Ok(r) => r,
+                Err(_) => return Err(CodexHttpErrorStatus::Error),
+            };
+
+            if !res.status().is_success() {
+                return Err(map_http_status(res.status().as_u16()));
+            }
+
+            let json: Value = match res.json().await {
+                Ok(v) => v,
+                Err(_) => return Err(CodexHttpErrorStatus::Error),
+            };
+            Ok(json)
+        }
+
+        match attempt(&self.http, USAGE_URL_PRIMARY, &headers).await {
+            Ok(v) => Ok(v),
+            Err(CodexHttpErrorStatus::Error) => {
+                attempt(&self.http, USAGE_URL_FALLBACK, &headers).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    pub async fn fetch_oauth_usage_snapshot(
+        &self,
+        access_token: &str,
+        account_id: Option<&str>,
+    ) -> CodexUsageSnapshot {
+        let headers = build_oauth_headers(access_token, account_id);
+        let result = self.fetch_usage_json(headers).await;
+        match result {
+            Ok(json) => match parse_codex_usage_response(json) {
+                Some((primary, secondary)) => ok_snapshot(primary, secondary),
+                None => error_snapshot("Codex usage data missing required fields."),
+            },
+            Err(CodexHttpErrorStatus::Unauthorized) => unauthorized_snapshot(
+                "Codex OAuth credentials are invalid. Run `codex` to re-authenticate.",
+            ),
+            Err(CodexHttpErrorStatus::RateLimited) => rate_limited_snapshot("Rate limited."),
+            Err(CodexHttpErrorStatus::Error) => error_snapshot("Failed to fetch Codex usage."),
+        }
+    }
+
+    pub async fn fetch_cli_usage_snapshot(&self, codex_binary: &str) -> CodexUsageSnapshot {
+        match self.rpc.fetch_rate_limits(codex_binary).await {
+            Ok((primary, secondary)) => ok_snapshot(primary, secondary),
+            Err(CodexCliError::BinaryMissing) => error_snapshot(
+                "Codex CLI missing. Install `@openai/codex` (or ensure `codex` is on PATH).",
+            ),
+            Err(CodexCliError::TimedOut) => error_snapshot("Codex CLI probe timed out."),
+            Err(CodexCliError::Malformed) => error_snapshot("Codex CLI returned invalid data."),
+            Err(CodexCliError::Failed(msg)) => error_snapshot(&msg),
+            Err(CodexCliError::Backoff { retry_in }) => error_snapshot(&format!(
+                "Codex CLI temporarily paused after previous failure; retrying in {}s.",
+                retry_in.as_secs()
+            )),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum CodexCliError {
+    BinaryMissing,
+    TimedOut,
+    Malformed,
+    Failed(String),
+    Backoff { retry_in: Duration },
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcRateLimitsResponse {
+    #[serde(rename = "rateLimits")]
+    rate_limits: RpcRateLimitSnapshot,
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcRateLimitSnapshot {
+    primary: Option<RpcRateLimitWindow>,
+    secondary: Option<RpcRateLimitWindow>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RpcRateLimitWindow {
+    #[serde(rename = "usedPercent")]
+    used_percent: f64,
+    #[serde(rename = "resetsAt")]
+    resets_at: Option<i64>,
+}
+
+impl RpcRateLimitWindow {
+    fn to_codex_window(&self) -> Option<CodexWindow> {
+        let reset_at = self.resets_at?;
+        Some(CodexWindow {
+            used_percent: self.used_percent.round() as i64,
+            reset_at,
+        })
+    }
+}
+
+struct CodexRpcClient {
+    state: Mutex<CodexRpcState>,
+}
+
+impl CodexRpcClient {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(CodexRpcState {
+                session: None,
+                backoff_until: None,
+            }),
+        }
+    }
+
+    async fn fetch_rate_limits(
+        &self,
+        binary: &str,
+    ) -> Result<(CodexWindow, CodexWindow), CodexCliError> {
+        let mut state = self.state.lock().await;
+
+        if let Some(until) = state.backoff_until {
+            let now = Instant::now();
+            if now < until {
+                return Err(CodexCliError::Backoff {
+                    retry_in: until - now,
+                });
+            }
+            state.backoff_until = None;
+        }
+
+        // Keep the CLI process around to avoid spawning a new one every refresh, but recycle it if
+        // it sits idle for too long.
+        const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+        if let Some(session) = state.session.as_ref() {
+            if session.last_used.elapsed() > IDLE_TIMEOUT {
+                if let Some(session) = state.session.take() {
+                    session.shutdown();
+                }
+            }
+        }
+
+        if state.session.is_none() {
+            state.session = Some(CodexRpcSession::spawn(binary).await?);
+        }
+
+        let result = match state.session.as_mut() {
+            Some(session) => session.read_rate_limits().await,
+            None => Err(CodexCliError::Malformed),
+        };
+
+        match result {
+            Ok(value) => Ok(value),
+            Err(err) => {
+                // Drop the session and back off to avoid repeated spawns/timeouts.
+                if let Some(session) = state.session.take() {
+                    session.shutdown();
+                }
+                state.backoff_until = Some(Instant::now() + backoff_for_error(&err));
+                Err(err)
+            }
+        }
+    }
+}
+
+struct CodexRpcState {
+    session: Option<CodexRpcSession>,
+    backoff_until: Option<Instant>,
+}
+
+struct CodexRpcSession {
+    child: tokio::process::Child,
+    stdin: tokio::process::ChildStdin,
+    stdout_lines: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
+    stderr_lines: tokio::io::Lines<BufReader<tokio::process::ChildStderr>>,
+    next_id: i64,
+    last_used: Instant,
+}
+
+impl CodexRpcSession {
+    async fn spawn(binary: &str) -> Result<Self, CodexCliError> {
+        let mut child = Command::new(binary)
+            .args(["-s", "read-only", "-a", "untrusted", "app-server"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|_| CodexCliError::BinaryMissing)?;
+
+        let stdin = child.stdin.take().ok_or(CodexCliError::Malformed)?;
+        let stdout = child.stdout.take().ok_or(CodexCliError::Malformed)?;
+        let stderr = child.stderr.take().ok_or(CodexCliError::Malformed)?;
+
+        let mut session = Self {
+            child,
+            stdin,
+            stdout_lines: BufReader::new(stdout).lines(),
+            stderr_lines: BufReader::new(stderr).lines(),
+            next_id: 1,
+            last_used: Instant::now(),
+        };
+
+        let init_id = session.next_id;
+        session.next_id += 1;
+        session
+            .send_request(
+                init_id,
+                "initialize",
+                serde_json::json!({"clientInfo": {"name": "claudometer", "version": env!("CARGO_PKG_VERSION")}}),
+            )
+            .await?;
+        let _ = session.read_response(init_id).await?;
+        let _ = session
+            .send_notification("initialized", serde_json::json!({}))
+            .await;
+
+        Ok(session)
+    }
+
+    fn shutdown(mut self) {
+        let _ = self.child.start_kill();
+        let mut child = self.child;
+        tauri::async_runtime::spawn(async move {
+            let _ = child.wait().await;
+        });
+    }
+
+    async fn read_rate_limits(&mut self) -> Result<(CodexWindow, CodexWindow), CodexCliError> {
+        if let Ok(Some(_)) = self.child.try_wait() {
+            return Err(CodexCliError::Failed(
+                "Codex CLI exited unexpectedly.".to_string(),
+            ));
+        }
+
+        let limits_id = self.next_id;
+        self.next_id += 1;
+        self.send_request(limits_id, "account/rateLimits/read", serde_json::json!({}))
+            .await?;
+        let message = self.read_response(limits_id).await?;
+
+        let result = message
+            .get("result")
+            .cloned()
+            .ok_or(CodexCliError::Malformed)?;
+        let parsed: RpcRateLimitsResponse =
+            serde_json::from_value(result).map_err(|_| CodexCliError::Malformed)?;
+
+        let primary = parsed
+            .rate_limits
+            .primary
+            .as_ref()
+            .and_then(RpcRateLimitWindow::to_codex_window)
+            .ok_or(CodexCliError::Malformed)?;
+        let secondary = parsed
+            .rate_limits
+            .secondary
+            .as_ref()
+            .and_then(RpcRateLimitWindow::to_codex_window)
+            .ok_or(CodexCliError::Malformed)?;
+
+        Ok((primary, secondary))
+    }
+
+    async fn send_request(
+        &mut self,
+        id: i64,
+        method: &str,
+        params: Value,
+    ) -> Result<(), CodexCliError> {
+        let payload = serde_json::json!({"id": id, "method": method, "params": params});
+        self.write_line(payload).await
+    }
+
+    async fn send_notification(
+        &mut self,
+        method: &str,
+        params: Value,
+    ) -> Result<(), CodexCliError> {
+        let payload = serde_json::json!({"method": method, "params": params});
+        self.write_line(payload).await
+    }
+
+    async fn write_line(&mut self, payload: Value) -> Result<(), CodexCliError> {
+        let data = serde_json::to_vec(&payload).map_err(|_| CodexCliError::Malformed)?;
+        self.stdin
+            .write_all(&data)
+            .await
+            .map_err(|_| CodexCliError::Failed("Codex CLI write failed.".to_string()))?;
+        self.stdin
+            .write_all(b"\n")
+            .await
+            .map_err(|_| CodexCliError::Failed("Codex CLI write failed.".to_string()))?;
+        self.last_used = Instant::now();
+        Ok(())
+    }
+
+    async fn read_response(&mut self, id: i64) -> Result<Value, CodexCliError> {
+        let deadline = Instant::now() + Duration::from_secs(12);
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(CodexCliError::TimedOut);
+            }
+            let timeout = deadline - now;
+
+            tokio::select! {
+                biased;
+                line = tokio::time::timeout(timeout, self.stdout_lines.next_line()) => {
+                    let line = match line {
+                        Ok(v) => v.map_err(|_| CodexCliError::Malformed)?,
+                        Err(_) => return Err(CodexCliError::TimedOut),
+                    };
+                    let Some(line) = line else {
+                        return Err(CodexCliError::Malformed);
+                    };
+                    let json: Value = serde_json::from_str(&line).map_err(|_| CodexCliError::Malformed)?;
+                    if json.get("id").and_then(|v| v.as_i64()) != Some(id) {
+                        continue;
+                    }
+                    if let Some(err) = json.get("error").and_then(|v| v.get("message")).and_then(|v| v.as_str()) {
+                        return Err(CodexCliError::Failed(redact_secrets(err).to_string()));
+                    }
+                    self.last_used = Instant::now();
+                    return Ok(json);
+                }
+                line = tokio::time::timeout(timeout, self.stderr_lines.next_line()) => {
+                    let line = match line {
+                        Ok(v) => v.map_err(|_| CodexCliError::Malformed)?,
+                        Err(_) => return Err(CodexCliError::TimedOut),
+                    };
+                    let _ = line;
+                }
+            }
+        }
+    }
+}
+
+fn backoff_for_error(error: &CodexCliError) -> Duration {
+    match error {
+        CodexCliError::BinaryMissing => Duration::from_secs(15 * 60),
+        CodexCliError::TimedOut => Duration::from_secs(10 * 60),
+        CodexCliError::Malformed => Duration::from_secs(5 * 60),
+        CodexCliError::Failed(_) => Duration::from_secs(5 * 60),
+        CodexCliError::Backoff { .. } => Duration::from_secs(5 * 60),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_oauth_fixture_maps_windows() {
+        let data = include_str!("fixtures/codex_oauth_usage_ok.json");
+        let json: Value = serde_json::from_str(data).unwrap();
+        let (primary, secondary) = parse_codex_usage_response(json).unwrap();
+        assert_eq!(primary.used_percent, 25);
+        assert_eq!(secondary.used_percent, 40);
+    }
+
+    #[test]
+    fn parse_rpc_fixture_maps_windows() {
+        let data = include_str!("fixtures/codex_rpc_rate_limits_ok.json");
+        let message: Value = serde_json::from_str(data).unwrap();
+        let result = message.get("result").cloned().unwrap();
+        let parsed: RpcRateLimitsResponse = serde_json::from_value(result).unwrap();
+        let primary = parsed
+            .rate_limits
+            .primary
+            .as_ref()
+            .and_then(RpcRateLimitWindow::to_codex_window)
+            .unwrap();
+        assert_eq!(primary.used_percent, 33);
+    }
+}

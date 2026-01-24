@@ -1,6 +1,11 @@
 use crate::claude::ClaudeApiClient;
-use crate::commands::{self, AppState, RefreshBus, SessionKeyManager};
+use crate::codex::CodexApiClient;
+use crate::commands;
+use crate::refresh;
 use crate::settings::SettingsStore;
+use crate::state::{
+    AppState, DebugOverride, RefreshBus, SecretManager, KEYRING_USER_CLAUDE_SESSION_KEY,
+};
 use crate::tray::{self, TrayUi};
 use std::collections::HashMap;
 use tauri::Manager;
@@ -31,6 +36,7 @@ pub fn run() {
             commands::settings_get_state,
             commands::settings_save,
             commands::settings_forget_key,
+            commands::settings_forget_claude_key,
             commands::settings_refresh_now,
             commands::open_settings,
             commands::check_for_updates,
@@ -161,25 +167,36 @@ pub fn run() {
                 tauri::Error::Setup(err.into())
             })?;
 
+            let codex = CodexApiClient::new().map_err(|e| {
+                let err: Box<dyn std::error::Error> = Box::new(e);
+                tauri::Error::Setup(err.into())
+            })?;
+
             let (tx, rx) = mpsc::unbounded_channel();
             let refresh = RefreshBus::new(tx);
 
             let state = AppState {
                 settings: settings.clone(),
-                session_key: SessionKeyManager::new(),
+                claude_session_key: SecretManager::new(KEYRING_USER_CLAUDE_SESSION_KEY),
                 claude: std::sync::Arc::new(claude),
+                codex: std::sync::Arc::new(codex),
                 organizations: std::sync::Arc::new(tokio::sync::Mutex::new(vec![])),
                 orgs_cache: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
                 latest_snapshot: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
                 reset_baseline_by_org: std::sync::Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 debug_override: std::sync::Arc::new(tokio::sync::Mutex::new(
-                    crate::commands::DebugOverride::default(),
+                    DebugOverride::default(),
                 )),
                 tray: tray.clone(),
                 refresh: refresh.clone(),
             };
 
-            commands::spawn_refresh_loop(app_handle.clone(), state.clone(), rx);
+            state.tray.update_snapshot(
+                state.track_claude_enabled(),
+                state.track_codex_enabled(),
+                None,
+            );
+            refresh::spawn_refresh_loop(app_handle.clone(), state.clone(), rx);
 
             if settings.get_bool(crate::settings::KEY_CHECK_UPDATES_ON_STARTUP, true) {
                 crate::updater::check_for_updates_background(app_handle.clone());
