@@ -84,6 +84,24 @@ h1 {
   color: var(--color-text);
 }
 
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.header h1 {
+  margin-bottom: 0;
+}
+
+.btn-close {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 6px 10px;
+}
+
 code {
   font-family: ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Mono", monospace;
   font-size: 11px;
@@ -112,7 +130,7 @@ code {
 
 /* Section visibility with collapse animation */
 [hidden] {
-  display: none !important;
+  display: none;
 }
 
 #claudeSection,

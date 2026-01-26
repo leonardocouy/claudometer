@@ -23,7 +23,7 @@ fn debug_resets_at(base: time::OffsetDateTime) -> (String, String) {
 }
 
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_autostart::init(
@@ -41,15 +41,6 @@ pub fn run() {
             commands::open_settings,
             commands::check_for_updates,
         ])
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Prevent closing the settings window from exiting the app
-                if window.label() == crate::windows::SETTINGS_WINDOW_LABEL {
-                    window.hide().unwrap_or_default();
-                    api.prevent_close();
-                }
-            }
-        })
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
             match id {
@@ -205,6 +196,16 @@ pub fn run() {
             app.manage(state);
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|_, event| {
+        if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
+            // Tray-first app: keep running after the last window is closed.
+            // Exiting should be explicit (tray menu -> `app.exit(0)`).
+            if code.is_none() {
+                api.prevent_exit();
+            }
+        }
+    });
 }

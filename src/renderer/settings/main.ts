@@ -2,6 +2,7 @@ import './styles.css';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import type {
   ClaudeOrganization,
@@ -390,6 +391,9 @@ function renderApp(root: HTMLElement): void {
     <div class="settings-container">
       <div class="header">
         <h1>Claudometer</h1>
+        <button type="button" class="btn-close" id="closeWindow" aria-label="Close settings">
+          Close
+        </button>
       </div>
 
       <!-- Providers Row (Side-by-side) -->
@@ -687,6 +691,19 @@ function renderApp(root: HTMLElement): void {
 
   const refreshNowButton = el<HTMLButtonElement>(root, '#refreshNow');
   const saveButton = el<HTMLButtonElement>(root, '#save');
+  const closeWindowButton = el<HTMLButtonElement>(root, '#closeWindow');
+
+  const closeWindow = async () => {
+    try {
+      await getCurrentWindow().close();
+    } catch {
+      // If closing fails on a given WM/platform, prefer not to crash the UI.
+    }
+  };
+
+  closeWindowButton.addEventListener('click', () => {
+    void closeWindow();
+  });
 
   // Helper to call applyVisibility with current state
   const updateVisibility = () => {
@@ -730,6 +747,15 @@ function renderApp(root: HTMLElement): void {
   modalCancelBtn.addEventListener('click', closeModal);
   ui.modalBackdropEl.addEventListener('click', (e) => {
     if (e.target === ui.modalBackdropEl) closeModal();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!ui.modalBackdropEl.hasAttribute('hidden')) {
+      closeModal();
+      return;
+    }
+    void closeWindow();
   });
 
   modalSaveBtn.addEventListener('click', async () => {
