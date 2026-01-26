@@ -713,7 +713,8 @@ function renderApp(root: HTMLElement): void {
   const modalSaveBtn = el<HTMLButtonElement>(root, '#modalSave');
 
   const openModal = (provider: 'claude' | 'codex') => {
-    ui.modalTitleEl.textContent = provider === 'claude' ? 'Claude Configuration' : 'Codex Configuration';
+    ui.modalTitleEl.textContent =
+      provider === 'claude' ? 'Claude Configuration' : 'Codex Configuration';
     ui.claudeConfigContentEl.toggleAttribute('hidden', provider !== 'claude');
     ui.codexConfigContentEl.toggleAttribute('hidden', provider !== 'codex');
     ui.modalBackdropEl.removeAttribute('hidden');
