@@ -1,6 +1,6 @@
 {
   "name": "claudometer",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Claudometer - Tray-first macOS + Linux app to monitor Claude + Codex usage limits.",
   "author": "Softaworks",
   "license": "MIT",

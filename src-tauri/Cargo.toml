@@ -1,6 +1,6 @@
 [package]
 name = "claudometer"
-version = "2.0.0"
+version = "2.1.0"
 description = "Claudometer - Tray-first macOS + Linux app to monitor Claude web usage limits."
 authors = ["Softaworks"]
 edition = "2021"
