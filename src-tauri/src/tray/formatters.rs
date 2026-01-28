@@ -163,6 +163,132 @@ pub(crate) fn strip_seconds_from_time_string(input: &str) -> String {
     out.join(" ")
 }
 
+fn clean_non_alnum_separators(input: &str) -> String {
+    let mut out = String::new();
+    let mut prev_was_sep = false;
+
+    for c in input.chars() {
+        let is_sep = !c.is_alphanumeric();
+        if is_sep {
+            if out.is_empty() {
+                continue;
+            }
+            if prev_was_sep {
+                continue;
+            }
+            out.push(c);
+            prev_was_sep = true;
+        } else {
+            out.push(c);
+            prev_was_sep = false;
+        }
+    }
+
+    while out.chars().last().is_some_and(|c| !c.is_alphanumeric()) {
+        out.pop();
+    }
+
+    out.trim().to_string()
+}
+
+pub(crate) fn strip_year_from_date_string(input: &str) -> String {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum SegmentKind {
+        Alnum,
+        Sep,
+    }
+
+    #[derive(Debug, Clone)]
+    struct Segment {
+        kind: SegmentKind,
+        text: String,
+    }
+
+    let mut segments: Vec<Segment> = Vec::new();
+    let mut cur_kind: Option<SegmentKind> = None;
+    let mut cur_text = String::new();
+
+    for c in input.chars() {
+        let kind = if c.is_alphanumeric() {
+            SegmentKind::Alnum
+        } else {
+            SegmentKind::Sep
+        };
+
+        if cur_kind == Some(kind) {
+            cur_text.push(c);
+        } else {
+            if let Some(k) = cur_kind.take() {
+                segments.push(Segment {
+                    kind: k,
+                    text: std::mem::take(&mut cur_text),
+                });
+            }
+            cur_kind = Some(kind);
+            cur_text.push(c);
+        }
+    }
+    if let Some(k) = cur_kind {
+        segments.push(Segment {
+            kind: k,
+            text: cur_text,
+        });
+    }
+
+    let alnum_indices: Vec<usize> = segments
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, seg)| (seg.kind == SegmentKind::Alnum).then_some(idx))
+        .collect();
+
+    let mut removed_any = false;
+
+    // Prefer removing a 4-digit ASCII year if present (common for many locales).
+    if let Some(idx) = alnum_indices.iter().copied().find(|&idx| {
+        let t = segments[idx].text.trim();
+        t.len() == 4 && t.chars().all(|c| c.is_ascii_digit())
+    }) {
+        segments[idx].text.clear();
+        removed_any = true;
+    } else {
+        // Fallback: remove a 2-digit year for common numeric short-date patterns (e.g., 01/28/26).
+        let numeric_alnums: Vec<(usize, usize)> = alnum_indices
+            .iter()
+            .copied()
+            .filter_map(|idx| {
+                let t = segments[idx].text.trim();
+                if t.is_empty() || !t.chars().all(|c| c.is_ascii_digit()) {
+                    return None;
+                }
+                Some((idx, t.len()))
+            })
+            .collect();
+
+        if numeric_alnums.len() == 3 {
+            let (last_idx, last_len) = numeric_alnums[numeric_alnums.len() - 1];
+            let first_len = numeric_alnums[0].1;
+            let second_len = numeric_alnums[1].1;
+            if last_len == 2 && first_len <= 2 && second_len <= 2 {
+                segments[last_idx].text.clear();
+                removed_any = true;
+            }
+        }
+    }
+
+    let rebuilt: String = segments
+        .into_iter()
+        .filter(|seg| !seg.text.trim().is_empty())
+        .map(|seg| seg.text)
+        .collect();
+
+    if removed_any {
+        clean_non_alnum_separators(&rebuilt)
+    } else {
+        clean_non_alnum_separators(input)
+    }
+}
+
+#[allow(dead_code)]
 pub(crate) fn format_time_short(iso: &str) -> Option<String> {
     // Locale + TZ rules:
     // - Time zone conversion uses `chrono::Local` (the OS-configured local time zone, incl. DST).
@@ -175,6 +301,30 @@ pub(crate) fn format_time_short(iso: &str) -> Option<String> {
         .format_localized("%X", locale)
         .to_string();
     Some(strip_seconds_from_time_string(&formatted))
+}
+
+pub(crate) fn format_reset_at_short(iso: &str) -> Option<String> {
+    // Locale + TZ rules:
+    // - Time zone conversion uses `chrono::Local` (the OS-configured local time zone, incl. DST).
+    // - Locale detection uses `LC_TIME` → `LC_ALL` → `LANG`.
+    // - Formatting uses `chrono` `unstable-locales` (pure-rust-locales) for locale patterns.
+    let dt: DateTime<FixedOffset> = DateTime::parse_from_rfc3339(iso).ok()?;
+    let locale = system_locale();
+    let local = dt.with_timezone(&Local);
+
+    let date_full = local.format_localized("%x", locale).to_string();
+    let date = strip_year_from_date_string(&date_full);
+
+    let time_full = local.format_localized("%X", locale).to_string();
+    let time = strip_seconds_from_time_string(&time_full);
+
+    if date.trim().is_empty() {
+        Some(time)
+    } else if time.trim().is_empty() {
+        Some(date)
+    } else {
+        Some(format!("{date} {time}"))
+    }
 }
 
 pub(crate) fn format_datetime_full(iso: &str) -> String {
@@ -222,6 +372,36 @@ mod tests {
         assert_eq!(normalize_locale_tag("pt_BR.UTF-8"), "pt_BR");
         assert_eq!(normalize_locale_tag("de-de.UTF-8"), "de_DE");
         assert_eq!(normalize_locale_tag("C.UTF-8"), "POSIX");
+    }
+
+    #[test]
+    fn strip_year_from_date_string_removes_yyyy_at_end() {
+        assert_eq!(strip_year_from_date_string("28/01/2026"), "28/01");
+    }
+
+    #[test]
+    fn strip_year_from_date_string_removes_yyyy_at_start() {
+        assert_eq!(strip_year_from_date_string("2026/01/28"), "01/28");
+    }
+
+    #[test]
+    fn strip_year_from_date_string_trims_separators() {
+        assert_eq!(strip_year_from_date_string("28.01.2026"), "28.01");
+    }
+
+    #[test]
+    fn strip_year_from_date_string_no_year_is_noop() {
+        assert_eq!(strip_year_from_date_string("28/01"), "28/01");
+    }
+
+    #[test]
+    fn strip_year_from_date_string_handles_two_digit_year_at_end() {
+        assert_eq!(strip_year_from_date_string("01/28/26"), "01/28");
+    }
+
+    #[test]
+    fn format_reset_at_short_does_not_crash() {
+        assert!(format_reset_at_short(sample_rfc3339_utc()).is_some());
     }
 
     fn make_claude_ok_bundle(session_percent: f64) -> UsageSnapshotBundle {

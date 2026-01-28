@@ -1,4 +1,4 @@
-use super::formatters::{format_datetime_full, format_percent, format_time_short};
+use super::formatters::{format_datetime_full, format_percent, format_reset_at_short};
 use crate::types::{ClaudeUsageSnapshot, CodexUsageSnapshot, UsageSnapshotBundle, UsageStatus};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::{AppHandle, Runtime};
@@ -124,13 +124,13 @@ pub(super) fn build_menu<R: Runtime>(
                 }) => {
                     let session_time = session_resets_at
                         .as_deref()
-                        .and_then(format_time_short)
+                        .and_then(format_reset_at_short)
                         .filter(|t| !t.is_empty())
                         .map(|t| format!(" (resets {t})"))
                         .unwrap_or_default();
                     let weekly_time = weekly_resets_at
                         .as_deref()
-                        .and_then(format_time_short)
+                        .and_then(format_reset_at_short)
                         .filter(|t| !t.is_empty())
                         .map(|t| format!(" (resets {t})"))
                         .unwrap_or_default();
@@ -169,7 +169,7 @@ pub(super) fn build_menu<R: Runtime>(
                             let model_time = m
                                 .resets_at
                                 .as_deref()
-                                .and_then(format_time_short)
+                                .and_then(format_reset_at_short)
                                 .filter(|t| !t.is_empty())
                                 .map(|t| format!(" (resets {t})"))
                                 .unwrap_or_default();
@@ -307,13 +307,13 @@ pub(super) fn build_menu<R: Runtime>(
             }) => {
                 let session_time = session_resets_at
                     .as_deref()
-                    .and_then(format_time_short)
+                    .and_then(format_reset_at_short)
                     .filter(|t| !t.is_empty())
                     .map(|t| format!(" (resets {t})"))
                     .unwrap_or_default();
                 let weekly_time = weekly_resets_at
                     .as_deref()
-                    .and_then(format_time_short)
+                    .and_then(format_reset_at_short)
                     .filter(|t| !t.is_empty())
                     .map(|t| format!(" (resets {t})"))
                     .unwrap_or_default();
